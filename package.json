@@ -1,0 +1,78 @@
+{
+  "name": "@dsh-external/dsh-llm-agy",
+  "version": "0.1.0",
+  "description": "AGY (Antigravity CLI) integration for dsh: LLM adapter (subagents), web search provider (Google via search_web), and a plugin-settings card with install/login status checks, live connectivity test, multi-OS install commands, and tool reference. Hot-pluggable — mounted via profile bundle patch, no dsh source changes.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "verify:portable": "node scripts/verify-portable.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-web": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.0.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
+    "@types/node": "^22.0.0",
+    "@types/react": "~18.3.1",
+    "typescript": "~5.7.2",
+    "vitest": "^3.0.0"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FengPaul/dsh-llm-agy.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "antigravity",
+    "agy",
+    "gemini",
+    "plugin"
+  ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

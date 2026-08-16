@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# 注意:lib/ 必须提交(用户免构建安装依赖仓库内的编译产物)
