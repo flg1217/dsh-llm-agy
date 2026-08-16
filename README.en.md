@@ -63,7 +63,7 @@ Full AGY environment check without touching a terminal:
 npx @deepseek-ai/dsh plugin --profile web add @dsh-external/dsh-llm-agy
 
 # From source
-git clone https://github.com/FengPaul/dsh-llm-agy.git
+git clone https://github.com/flg1217/dsh-llm-agy.git
 cd dsh-llm-agy
 pnpm install && pnpm build
 node scripts/link-profile.mjs
@@ -163,7 +163,7 @@ The plugin is dual-faced and assembled through dsh's official extension points:
 ## 6. Development
 
 ```bash
-git clone https://github.com/FengPaul/dsh-llm-agy.git
+git clone https://github.com/flg1217/dsh-llm-agy.git
 cd dsh-llm-agy
 pnpm install
 pnpm build

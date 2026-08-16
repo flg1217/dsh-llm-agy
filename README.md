@@ -62,7 +62,7 @@
 npx @deepseek-ai/dsh plugin --profile web add @dsh-external/dsh-llm-agy
 
 # 方式二:从 Git 仓库安装(免构建——lib/ 已随仓库提交)
-git clone https://github.com/FengPaul/dsh-llm-agy.git
+git clone https://github.com/flg1217/dsh-llm-agy.git
 dsh plugin --profile web add <dsh-llm-agy 目录>
 
 # 方式三:本地一键脚本(仓库内)
@@ -164,7 +164,7 @@ npm install -g @antigravity/cli
 ## 六、参与开发
 
 ```bash
-git clone https://github.com/FengPaul/dsh-llm-agy.git
+git clone https://github.com/flg1217/dsh-llm-agy.git
 cd dsh-llm-agy
 pnpm install
 pnpm build          # tsc 服务端 + 客户端 bundle 拷贝

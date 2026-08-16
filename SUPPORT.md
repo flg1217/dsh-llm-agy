@@ -3,7 +3,7 @@
 ## 获取帮助
 
 - 阅读 [README](README.md) 与 [README.en.md](README.en.md)
-- 搜索仓库 [Issues](https://github.com/FengPaul/dsh-llm-agy/issues) 是否已有相同问题
+- 搜索仓库 [Issues](https://github.com/flg1217/dsh-llm-agy/issues) 是否已有相同问题
 - 排查步骤:
   1. `dsh plugin --profile web add <本仓库目录>` 确认装配
   2. 重启 dsh web
@@ -30,7 +30,7 @@ winget install --id Google.Antigravity
 
 ## 问题反馈
 
-请通过 [Issues](https://github.com/FengPaul/dsh-llm-agy/issues) 提交问题,并附上:
+请通过 [Issues](https://github.com/flg1217/dsh-llm-agy/issues) 提交问题,并附上:
 - dsh 版本与 profile
 - 插件版本
 - 面板检测/测试的完整输出
