@@ -297,7 +297,8 @@ export class AgyLlmAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
-      inputModalities: ['text'],
+      // AGY 由 Gemini 驱动,支持文本与图像输入(视觉看图子代理依赖此项)。
+      inputModalities: ['text', 'image'],
       context: { contextWindow: 1_000_000 },
     })
   }
