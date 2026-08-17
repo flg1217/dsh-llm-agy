@@ -133,12 +133,11 @@ npm install -g @antigravity/cli
 
 ### 子代理委派给 AGY
 
-**无需配置**——插件启动时自动挂载官方 `@deepseek-ai/dsh-tool-subagent` 注册两个工具(全局可见,所有会话/预设生效):
+**无需配置**——插件启动时自动挂载官方 `@deepseek-ai/dsh-tool-subagent` 注册工具(全局可见,所有会话/预设生效):
 
 - `subagent_agy_ui`(continuable,可复用长线会话):前端/UI 设计、样式研究、视觉实现、截图核验
-- `subagent_agy_vision`(one-shot):看图、截图/设计稿分析
 
-两者都由 AGY/Gemini 驱动(`agentOptions.provider: agy`),独立于主代理的模型。如不需要,可在插件配置里设 `registerSubagentTools: false` 关闭。
+由 AGY/Gemini 驱动(`agentOptions.provider: agy`),独立于主代理的模型。如不需要,可在插件配置里设 `registerSubagentTools: false` 关闭。看图不委派子代理——用全局常驻的 `read_image_agy` 直接读图。
 
 前端/UI 类任务:委派 `subagent_agy_ui`,由独立 Gemini 模型完成设计、实现与截图核验。
 

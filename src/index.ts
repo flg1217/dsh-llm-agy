@@ -30,7 +30,7 @@ export interface Config {
   proxy?: string
   /** 注册为 dsh web 搜索 provider 的 id,默认 `agy`;空字符串禁用搜索接入。 */
   searchProviderId?: string
-  /** 是否注册 `subagent_agy_ui` / `subagent_agy_vision` 子代理工具(默认开启)。 */
+  /** 是否注册 `subagent_agy_ui` 子代理工具(默认开启)。 */
   registerSubagentTools?: boolean
 }
 
@@ -44,7 +44,7 @@ export const Config: z<Config> = z.object({
   registerSubagentTools: z.boolean().default(true),
 })
 
-/** 子代理委派工具:前端/UI 与看图走 AGY/Gemini,独立于主模型。 */
+/** 子代理委派工具:前端/UI 走 AGY/Gemini,独立于主模型。看图已由 read_image_agy 取代,不再注册子代理。 */
 function registerSubagentTools(ctx: Context, model: string): void {
   const agentOptions = { provider: 'agy', model }
   // 动态挂载官方 @deepseek-ai/dsh-tool-subagent 实例注册工具,插件自包含,
@@ -53,12 +53,6 @@ function registerSubagentTools(ctx: Context, model: string): void {
     provider: 'spawn',
     toolName: 'subagent_agy_ui',
     backgroundMode: 'continuable',
-    agentOptions,
-  })
-  ctx.plugin(applyToolSubagent, {
-    provider: 'spawn',
-    toolName: 'subagent_agy_vision',
-    backgroundMode: 'one-shot',
     agentOptions,
   })
 }
@@ -71,8 +65,8 @@ export function apply(ctx: Context, config: Config): void {
     extraArgs: config.extraArgs ?? [],
     proxy: config.proxy,
   }))
-  // 子代理委派工具:前端/UI 设计(subagent_agy_ui,continuable 可复用长线会话)
-  // 与看图(subagent_agy_vision,one-shot 一次性),由 AGY/Gemini 驱动。
+  // 子代理委派工具:前端/UI 设计(subagent_agy_ui,continuable 可复用长线会话),
+  // 由 AGY/Gemini 驱动;看图不委派子代理(用全局 read_image_agy)。
   if (config.registerSubagentTools !== false) {
     registerSubagentTools(ctx, config.model ?? 'gemini-3.7-flash-high')
   }

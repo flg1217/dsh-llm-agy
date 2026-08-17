@@ -176,6 +176,7 @@ window.__ModuleLoader__.load({
               icon: testing ? react.createElement(IconLoadingOutline16, { size: 14 }) : undefined,
             }, testing ? '测试中...' : '测试(回复 hi)'),
           ),
+          react.createElement('p', { className: C.hint }, '若已安装仍提示未安装,请重启 dsh 服务(PATH 生效后需重启)'),
           statusText !== '' && react.createElement('pre', { className: C.pre }, statusText),
           testText !== '' && react.createElement('pre', { className: C.pre }, testText),
 
