@@ -20,6 +20,8 @@ export interface Config {
     proxy?: string;
     /** 注册为 dsh web 搜索 provider 的 id,默认 `agy`;空字符串禁用搜索接入。 */
     searchProviderId?: string;
+    /** 是否注册 `subagent_agy_ui` / `subagent_agy_vision` 子代理工具(默认开启)。 */
+    registerSubagentTools?: boolean;
 }
 export declare const Config: z<Config>;
 export declare function apply(ctx: Context, config: Config): void;

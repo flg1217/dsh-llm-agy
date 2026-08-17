@@ -4,7 +4,7 @@
 // 检测/测试走 api.llm.discoverModels({settingsNs:'agy', provider:'status'|'test'}),
 // 服务端直接 spawn agy CLI,不落会话。
 window.__ModuleLoader__.load({
-  id: '@dsh-external/llm-agy',
+  id: '@dsh-external/dsh-llm-agy',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports
