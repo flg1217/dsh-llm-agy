@@ -20,6 +20,8 @@ export const AgySettingsConfig = z.object({
   model: z.string().default('gemini-3.7-flash-high').description('传给 --model 的 AGY 模型'),
   effort: z.string().default('high').description('推理强度 low/medium/high'),
   proxy: z.string().default('http://127.0.0.1:7890').description('AGY 流量代理(空字符串禁用)'),
+  /** 全局注入"看图分工"系统提示(看图用 read_image_agy,不委派子代理)。 */
+  delegationGuide: z.boolean().default(true).description('注入工具使用提示词'),
 })
 
 /** 检测 AGY 是否已安装(命令存在)。 */

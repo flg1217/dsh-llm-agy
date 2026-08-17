@@ -9,9 +9,12 @@ import z from '@deepseek-ai/schemastery'
 import { AgyLlmAdapter } from './adapter.js'
 import { AgySearchProvider } from './search.js'
 import { registerAgySettings } from './settings.js'
+import { installImageRelay } from './image-paste.js'
+import { registerReadImageAgy } from './read-image.js'
+import { installDelegationGuide } from './delegate-guide.js'
 
 export const name = 'llm-agy'
-export const inject = ['llm', 'web']
+export const inject = ['llm', 'web', 'tools']
 
 export interface Config {
   /** agy 可执行文件,默认 `agy`。 */
@@ -57,4 +60,17 @@ export function apply(ctx: Context, config: Config): void {
   }
   // 设置面板 AntiGravity 配置区 + /agy 命令(status/test/help)。
   registerAgySettings(ctx)
+  // 注:read_image 覆盖由 router-agy 预设的 read-image-override.mjs
+  // (agent 作用域同名注册 shadow 全局)实现,受 agy namespace 的
+  // overrideReadImage 开关控制;此处无需注册。
+  // 输入栏贴图:llm/stream 监听器,后端把 ImageBlock 落盘为路径文本。
+  // 不新增 provider、不改模型路由、不改前端——用户完全无感。
+  installImageRelay(ctx)
+  // read_image_agy 工具:全局常驻,任何会话(含非预设)的文本主模型都可直接读图。
+  registerReadImageAgy(ctx, () => ({
+    command: config.command ?? 'agy',
+    proxy: config.proxy ?? 'http://127.0.0.1:7890',
+  }))
+  // 全局看图分工提示(section),受 agy namespace 的 delegationGuide 开关控制。
+  installDelegationGuide(ctx)
 }

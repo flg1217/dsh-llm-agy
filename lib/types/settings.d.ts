@@ -13,11 +13,15 @@ export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
     model: z<string, string>;
     effort: z<string, string>;
     proxy: z<string, string>;
+    /** 全局注入"看图分工"系统提示(看图用 read_image_agy,不委派子代理)。 */
+    delegationGuide: z<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     command: z<string, string>;
     model: z<string, string>;
     effort: z<string, string>;
     proxy: z<string, string>;
+    /** 全局注入"看图分工"系统提示(看图用 read_image_agy,不委派子代理)。 */
+    delegationGuide: z<boolean, boolean>;
 }>>;
 /** 检测 AGY 是否已安装(命令存在)。 */
 export declare function agyInstalled(command: string): boolean;
