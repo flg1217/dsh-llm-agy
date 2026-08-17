@@ -73,10 +73,12 @@ Full AGY environment check without touching a terminal:
 ```bash
 # Install from the Git repository (no build needed — lib/ is committed)
 git clone https://github.com/flg1217/dsh-llm-agy.git
+cd dsh-llm-agy
+pnpm install          # install plugin deps (dsh mounts local dirs via link:; the plugin needs its own node_modules)
 dsh plugin --profile web add <dsh-llm-agy directory>
 ```
 
-After installation, **restart dsh web**, open **Settings → Plugins → AntiGravity**, expand the card and click "Check install/login" to confirm the environment is ready.
+After installation, **restart dsh web**, open **Settings → Plugins** — the **AntiGravity** card should appear; expand it and click "Check install/login" to confirm the environment is ready.
 
 ### Install AGY (Antigravity CLI)
 

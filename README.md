@@ -71,10 +71,12 @@
 ```bash
 # 从 Git 仓库安装(免构建——lib/ 已随仓库提交)
 git clone https://github.com/flg1217/dsh-llm-agy.git
+cd dsh-llm-agy
+pnpm install          # 安装插件依赖(dsh 以 link: 方式挂载本地目录,需插件自身带 node_modules)
 dsh plugin --profile web add <dsh-llm-agy 目录>
 ```
 
-安装完成后**重启 dsh web**,进入 **设置 → 插件 → AntiGravity** 展开卡片,点击"检测安装/登录"确认环境就绪。
+安装完成后**重启 dsh web**,进入 **设置 → 插件** 应能看到 **AntiGravity** 卡片;展开卡片,点击"检测安装/登录"确认环境就绪。
 
 ### 安装 AGY(Antigravity CLI)
 
