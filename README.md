@@ -69,15 +69,9 @@
 ### 安装插件
 
 ```bash
-# 方式一:通过 npm(发布后)
-npx @deepseek-ai/dsh plugin --profile web add @dsh-external/dsh-llm-agy
-
-# 方式二:从 Git 仓库安装(免构建——lib/ 已随仓库提交)
+# 从 Git 仓库安装(免构建——lib/ 已随仓库提交)
 git clone https://github.com/flg1217/dsh-llm-agy.git
 dsh plugin --profile web add <dsh-llm-agy 目录>
-
-# 方式三:本地一键脚本(仓库内)
-node scripts/link-profile.mjs
 ```
 
 安装完成后**重启 dsh web**,进入 **设置 → 插件 → AntiGravity** 展开卡片,点击"检测安装/登录"确认环境就绪。

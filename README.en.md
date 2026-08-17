@@ -71,14 +71,9 @@ Full AGY environment check without touching a terminal:
 ### Install the plugin
 
 ```bash
-# Via npm (after publish)
-npx @deepseek-ai/dsh plugin --profile web add @dsh-external/dsh-llm-agy
-
-# From source
+# Install from the Git repository (no build needed — lib/ is committed)
 git clone https://github.com/flg1217/dsh-llm-agy.git
-cd dsh-llm-agy
-pnpm install && pnpm build
-node scripts/link-profile.mjs
+dsh plugin --profile web add <dsh-llm-agy directory>
 ```
 
 After installation, **restart dsh web**, open **Settings → Plugins → AntiGravity**, expand the card and click "Check install/login" to confirm the environment is ready.
