@@ -135,18 +135,11 @@ Main agent: calls read_image_agy → gets AGY/Gemini's text description → cont
 
 ### Subagent delegation to AGY
 
-Configure in an agent preset or tool row:
+**No configuration needed** — the plugin mounts the official `@deepseek-ai/dsh-tool-subagent` on startup and registers the tool (globally visible in every session/preset):
 
-```yaml
-- id: tool-subagent-agy-ui
-  name: '@deepseek-ai/dsh-tool-subagent'
-  config:
-    provider: spawn
-    toolName: subagent_agy_ui
-    agentOptions:
-      provider: agy            # reasoning done by AGY/Gemini
-      model: gemini-3.7-flash-high
-```
+- `subagent_agy_ui` (continuable, reusable long-lived sessions): frontend/UI design, styling research, visual implementation, screenshot verification
+
+It is driven by AGY/Gemini (`agentOptions.provider: agy`), independent of the main agent's model. To disable it, set `registerSubagentTools: false` in the plugin config. Do not delegate image reading to a subagent — use the globally resident `read_image_agy` tool instead.
 
 Frontend/UI tasks: delegate to `subagent_agy_ui` — design, implementation and screenshot verification by an independent Gemini model.
 
