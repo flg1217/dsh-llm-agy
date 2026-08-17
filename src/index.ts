@@ -6,7 +6,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { apply as applyToolSubagent } from '@deepseek-ai/dsh-tool-subagent'
+import * as toolSubagentPlugin from '@deepseek-ai/dsh-tool-subagent'
 import { AgyLlmAdapter } from './adapter.js'
 import { AgySearchProvider } from './search.js'
 import { registerAgySettings } from './settings.js'
@@ -49,7 +49,9 @@ function registerSubagentTools(ctx: Context, model: string): void {
   const agentOptions = { provider: 'agy', model }
   // 动态挂载官方 @deepseek-ai/dsh-tool-subagent 实例注册工具,插件自包含,
   // 无需修改 dsh 源码或 agent 预设;工具随 provider 出现而注册,全局可见。
-  ctx.plugin(applyToolSubagent, {
+  // 必须传整个插件模块对象(带 inject),只传 apply 会丢失
+  // ['tools','subagents','systemPrompt'] 注入声明,fiber 加载即失败。
+  ctx.plugin(toolSubagentPlugin, {
     provider: 'spawn',
     toolName: 'subagent_agy_ui',
     backgroundMode: 'continuable',
