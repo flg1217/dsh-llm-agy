@@ -19,8 +19,8 @@ export declare function agyReadImageAgyTool(getOptions: () => {
     command: string;
     proxy: string;
 }): import("@deepseek-ai/dsh-tools").ToolDefinition;
-/** 注册 read_image_agy 工具(全局常驻)。 */
+/** 注册 read_image_agy 工具(全局常驻),返回注销函数。 */
 export declare function registerReadImageAgy(ctx: Context, getOptions: () => {
     command: string;
     proxy: string;
-}): void;
+}): (() => void) | undefined;

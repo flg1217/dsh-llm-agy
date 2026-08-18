@@ -48,6 +48,13 @@ function materializeKey(sessionId: string | undefined, attachmentId: string | un
   return `${sessionId ?? ''}|${attachmentId ?? ''}`
 }
 
+/** 短会话标记:取会话 id 尾部(去非字母数字),用于文件名定位,避免长 id 文件名。 */
+function sessionTag(sessionId: string | undefined): string {
+  if (sessionId === undefined) return 'anon'
+  const compact = sessionId.replace(/[^a-zA-Z0-9]/g, '')
+  return compact.slice(-8) || 'anon'
+}
+
 /** 被本插件声明为支持 image 的模型路由(provider:model)。 */
 const imageDeclared = new Set<string>()
 
@@ -89,7 +96,8 @@ export async function materializeImage(
 
   const dir = join(workspace, PASTE_DIR)
   mkdirSync(dir, { recursive: true })
-  const path = join(dir, `${id.slice(0, 40)}-${Date.now()}-${writeSeq++}.${extensionOf(block.attachment?.mediaType ?? 'image/png')}`)
+  // 短 uid 文件名:时间戳 + 会话短标记 + 自增序号(防同毫秒碰撞),不再带长附件 id。
+  const path = join(dir, `${Date.now()}-${sessionTag(sessionId)}-${writeSeq++}.${extensionOf(block.attachment?.mediaType ?? 'image/png')}`)
   writeFileSync(path, data)
   materializedImages.set(cacheKey, path)
   return path
@@ -167,20 +175,20 @@ export async function convertPastedImages(
 }
 
 /**
- * 安装图片中继:
+ * 安装图片中继(返回注销函数,关闭开关时可整体移除):
  * 1. 包装 llm.resolveModelInfo,把文本模型声明为支持 image(绕过 api-proxy 拒绝);
  * 2. llm/stream 监听器对声明过的模型转换 ImageBlock。
  */
-export function installImageRelay(ctx: Context): void {
+export function installImageRelay(ctx: Context): (() => void) | undefined {
   const llm = ctx.get('llm') as {
     resolveModelInfo?: (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
     adapters?: Map<string, { adapter?: { stream(options: GenerateOptions): AsyncIterable<StreamChunk> } }>
   } | undefined
-  if (!llm || typeof llm.resolveModelInfo !== 'function') return
+  if (!llm || typeof llm.resolveModelInfo !== 'function') return undefined
 
   // 1. 包装 resolveModelInfo:文本模型 → 声明 image 能力。
   const original = llm.resolveModelInfo.bind(llm)
-  llm.resolveModelInfo = async (provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo> => {
+  const wrapped = async (provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo> => {
     const info = await original(provider, model, signal)
     if (info?.inputModalities !== undefined && !info.inputModalities.includes('image')) {
       imageDeclared.add(`${provider}:${model}`)
@@ -188,9 +196,10 @@ export function installImageRelay(ctx: Context): void {
     }
     return info
   }
+  llm.resolveModelInfo = wrapped
 
   // 2. llm/stream 监听器:仅处理被声明的模型,只消费最新一条用户输入里的图片。
-  ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<StreamChunk>) => {
+  const off = ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<StreamChunk>) => {
     if (!imageDeclared.has(`${options.provider}:${options.model}`)) return next()
     if (!hasImage(options.messages)) return next()
     const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
@@ -202,4 +211,10 @@ export function installImageRelay(ctx: Context): void {
       yield* adapter.stream({ ...options, messages })
     })()
   })
+
+  return () => {
+    // 仅当 resolveModelInfo 仍是本插件包装时才恢复原函数(防御第三方再次包装)。
+    if (llm.resolveModelInfo === wrapped) llm.resolveModelInfo = original
+    off()
+  }
 }

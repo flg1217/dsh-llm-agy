@@ -22,7 +22,15 @@ export const AgySettingsConfig = z.object({
   proxy: z.string().default('http://127.0.0.1:7890').description('AGY 流量代理(空字符串禁用)'),
   /** 全局注入"看图分工"系统提示(看图用 read_image_agy,不委派子代理)。 */
   delegationGuide: z.boolean().default(true).description('注入工具使用提示词'),
+  /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
+  readImageAgy: z.boolean().default(true).description('启用 AGY 看图工具(read_image_agy)与图片中继'),
 })
+
+/** 读取 readImageAgy 开关(默认开启)。 */
+export function readImageAgyEnabled(ctx: Context): boolean {
+  const settings = ctx.get('settings') as { get?: (ns: string) => { readImageAgy?: boolean } | undefined } | undefined
+  return settings?.get?.('agy')?.readImageAgy ?? true
+}
 
 /** 检测 AGY 是否已安装(命令存在)。 */
 export function agyInstalled(command: string): boolean {

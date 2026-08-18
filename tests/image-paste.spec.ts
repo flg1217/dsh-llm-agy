@@ -247,3 +247,44 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     expect(pastedImageFiles()).toHaveLength(1)
   })
 })
+
+
+describe('短文件名(时间戳 + 会话短标记)', () => {
+  it('文件名不含长附件 id,形如 <时间戳>-<会话短标记>-<序号>.<扩展名>', async () => {
+    const { ctx } = makeCtx()
+    const longId = 'sha256_' + 'a'.repeat(60)
+    const path = await materializeImage(ctx as never, imageBlock(longId) as never, sessionId)
+
+    const name = path.split(/[\\/]/).pop() ?? ''
+    expect(name).not.toContain('sha256_')
+    expect(name).toMatch(/^\d+-[a-zA-Z0-9]{8}-\d+\.png$/)
+    expect(name.length).toBeLessThan(40)
+  })
+
+  it('无会话 id 时用 anon 标记', async () => {
+    const { ctx } = makeCtx()
+    const path = await materializeImage(ctx as never, imageBlock('sha256-anon') as never, undefined)
+
+    const name = path.split(/[\\/]/).pop() ?? ''
+    expect(name).toMatch(/^\d+-anon-\d+\.png$/)
+  })
+})
+
+describe('readImageAgyEnabled:开关读取', async () => {
+  const { readImageAgyEnabled } = await import('../src/settings.ts')
+
+  it('未配置时默认开启', () => {
+    const ctx = { get: () => undefined }
+    expect(readImageAgyEnabled(ctx as never)).toBe(true)
+  })
+
+  it('settings 命名空间关闭时返回 false', () => {
+    const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: false } : undefined }) }
+    expect(readImageAgyEnabled(ctx as never)).toBe(false)
+  })
+
+  it('settings 命名空间开启时返回 true', () => {
+    const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: true } : undefined }) }
+    expect(readImageAgyEnabled(ctx as never)).toBe(true)
+  })
+})

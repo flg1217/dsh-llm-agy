@@ -47,8 +47,8 @@ export declare function materializeImage(ctx: Context, block: Extract<ContentBlo
  */
 export declare function convertPastedImages(ctx: Context, messages: readonly Message[], sessionId?: string): Promise<Message[]>;
 /**
- * 安装图片中继:
+ * 安装图片中继(返回注销函数,关闭开关时可整体移除):
  * 1. 包装 llm.resolveModelInfo,把文本模型声明为支持 image(绕过 api-proxy 拒绝);
  * 2. llm/stream 监听器对声明过的模型转换 ImageBlock。
  */
-export declare function installImageRelay(ctx: Context): void;
+export declare function installImageRelay(ctx: Context): (() => void) | undefined;

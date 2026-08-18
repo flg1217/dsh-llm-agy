@@ -75,9 +75,12 @@ export function agyReadImageAgyTool(getOptions: () => { command: string; proxy: 
   })
 }
 
-/** 注册 read_image_agy 工具(全局常驻)。 */
-export function registerReadImageAgy(ctx: Context, getOptions: () => { command: string; proxy: string }): void {
+/** 注册 read_image_agy 工具(全局常驻),返回注销函数。 */
+export function registerReadImageAgy(ctx: Context, getOptions: () => { command: string; proxy: string }): (() => void) | undefined {
   try {
-    ctx.tools.register(agyReadImageAgyTool(getOptions))
-  } catch { /* 已注册则跳过 */ }
+    return ctx.tools.register(agyReadImageAgyTool(getOptions))
+  } catch {
+    /* 已注册则跳过 */
+    return undefined
+  }
 }
