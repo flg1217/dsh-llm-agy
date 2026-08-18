@@ -16,6 +16,13 @@
  * @module llm-agy/image-paste
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm';
+/** 读 attachment 图片字节并落盘到工作区,返回绝对路径(同一附件同会话只写一次)。 */
+export declare function materializeImage(ctx: Context, block: Extract<ContentBlock, {
+    type: 'image';
+}>, sessionId: string | undefined): Promise<string>;
+/** 转换消息:ImageBlock → 路径文本;返回新消息数组。 */
+export declare function convertPastedImages(ctx: Context, messages: readonly Message[], sessionId?: string): Promise<Message[]>;
 /**
  * 安装图片中继:
  * 1. 包装 llm.resolveModelInfo,把文本模型声明为支持 image(绕过 api-proxy 拒绝);

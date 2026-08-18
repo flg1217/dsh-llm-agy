@@ -24,6 +24,23 @@ import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, Message, Stre
 /** 图片保存目录(相对会话工作区)。 */
 const PASTE_DIR = '.dsh-llm-agy/tmp/pasted-images'
 
+/**
+ * 已物化图片缓存:`<sessionId>|<attachmentId>` → 已落盘的绝对路径。
+ *
+ * 会话历史里的 ImageBlock 会随每个请求反复经过 llm/stream 监听器,若不缓存,
+ * 同一张粘贴图会在每次请求时以新的 Date.now() 文件名重新落盘,堆积大量
+ * 内容相同、名称不同的文件(实测单图可达数百份)。
+ */
+const materializedImages = new Map<string, string>()
+
+/** 文件号自增器:保证同一毫秒内多次落盘也不会碰撞文件名。 */
+let writeSeq = 0
+
+/** 物化缓存键:同一附件在同一会话只落盘一次;不同会话允许各自落盘。 */
+function materializeKey(sessionId: string | undefined, attachmentId: string | undefined): string {
+  return `${sessionId ?? ''}|${attachmentId ?? ''}`
+}
+
 /** 被本插件声明为支持 image 的模型路由(provider:model)。 */
 const imageDeclared = new Set<string>()
 
@@ -32,12 +49,19 @@ function hasImage(messages: readonly Message[]): boolean {
   return messages.some((m) => m.content.some((b) => b.type === 'image'))
 }
 
-/** 读 attachment 图片字节并落盘到工作区,返回绝对路径。 */
-async function materializeImage(
+/** 读 attachment 图片字节并落盘到工作区,返回绝对路径(同一附件同会话只写一次)。 */
+export async function materializeImage(
   ctx: Context,
   block: Extract<ContentBlock, { type: 'image' }>,
   sessionId: string | undefined,
 ): Promise<string> {
+  const id = String(block.attachment?.attachmentId ?? 'paste').replace(/[^a-zA-Z0-9_-]/g, '_')
+  // 同一附件重复经过本函数(每次请求都会重放含图片的历史消息)时,直接复用已落盘路径,
+  // 连附件字节都不必重读。
+  const cacheKey = materializeKey(sessionId, id)
+  const cached = materializedImages.get(cacheKey)
+  if (cached !== undefined) return cached
+
   const attachments = ctx.get('attachments') as {
     readImage?: (ref: unknown, signal?: AbortSignal) => Promise<{ data: Uint8Array }>
   } | undefined
@@ -58,11 +82,11 @@ async function materializeImage(
     if (session?.header?.cwd && session.header.cwd.length > 0) workspace = session.header.cwd
   } catch { /* cwd 不可用时用宿主 cwd */ }
 
-  const id = String(block.attachment?.attachmentId ?? 'paste').replace(/[^a-zA-Z0-9_-]/g, '_')
   const dir = join(workspace, PASTE_DIR)
   mkdirSync(dir, { recursive: true })
-  const path = join(dir, `${id.slice(0, 40)}-${Date.now()}.${extensionOf(block.attachment?.mediaType ?? 'image/png')}`)
+  const path = join(dir, `${id.slice(0, 40)}-${Date.now()}-${writeSeq++}.${extensionOf(block.attachment?.mediaType ?? 'image/png')}`)
   writeFileSync(path, data)
+  materializedImages.set(cacheKey, path)
   return path
 }
 
@@ -78,7 +102,7 @@ function extensionOf(mediaType: string): string {
 }
 
 /** 转换消息:ImageBlock → 路径文本;返回新消息数组。 */
-async function convertPastedImages(
+export async function convertPastedImages(
   ctx: Context,
   messages: readonly Message[],
   sessionId?: string,
