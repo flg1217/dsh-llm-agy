@@ -125,7 +125,7 @@ window.__ModuleLoader__.load({
       const onStatus = react.useCallback(() => runProbe('status', setStatusText, setChecking), [runProbe])
       const onTest = react.useCallback(() => runProbe('test', setTestText, setTesting), [runProbe])
 
-      // 子代理委派提示开关:读写 agy settings namespace 的 delegationGuide。
+      // 看图分工提示开关:读写 agy settings namespace 的 delegationGuide。
       const [guideOn, setGuideOn] = react.useState(true)
       react.useEffect(() => {
         let cancelled = false
@@ -148,30 +148,6 @@ window.__ModuleLoader__.load({
           setGuideOn(!next)
         }
       }, [connection, guideOn])
-
-      // AGY 看图工具开关:读写 agy settings namespace 的 readImageAgy。
-      const [imageToolOn, setImageToolOn] = react.useState(true)
-      react.useEffect(() => {
-        let cancelled = false
-        connection.api.settings.describe({}).then((resp) => {
-          if (cancelled) return
-          const ns = resp?.result?.value?.namespaces?.find?.((n) => n.ns === 'agy')
-          if (ns?.value?.readImageAgy !== undefined) setImageToolOn(Boolean(ns.value.readImageAgy))
-        }).catch(() => {})
-        return () => { cancelled = true }
-      }, [connection])
-      const toggleImageTool = react.useCallback(async () => {
-        const next = !imageToolOn
-        setImageToolOn(next)
-        try {
-          await connection.api.settings.mutate({
-            ns: 'agy',
-            ops: [{ path: 'readImageAgy', op: 'set', value: next }],
-          })
-        } catch (e) {
-          setImageToolOn(!next)
-        }
-      }, [connection, imageToolOn])
 
       return react.createElement('li', { className: `${C.card} ${open ? C.cardOpen : ''}` },
         // 卡片头(与官方 PluginCard 一致)
@@ -204,28 +180,10 @@ window.__ModuleLoader__.load({
           statusText !== '' && react.createElement('pre', { className: C.pre }, statusText),
           testText !== '' && react.createElement('pre', { className: C.pre }, testText),
 
-          // 看图工具开关
+          // 看图分工提示开关
           react.createElement('div', { className: C.field },
             react.createElement('div', { className: C.fieldHead },
-              react.createElement('span', { className: C.label }, 'AGY 看图工具(read_image_agy)'),
-              react.createElement('input', {
-                type: 'checkbox',
-                checked: imageToolOn,
-                onChange: toggleImageTool,
-                style: { accentColor: 'var(--dsw-alias-brand-primary)', width: 16, height: 16, cursor: 'pointer' },
-              }),
-            ),
-            react.createElement('p', { className: C.hint },
-              imageToolOn
-                ? '开启(默认):注册 read_image_agy 工具与图片粘贴中继,文本模型也可看图'
-                : '关闭:不注册看图工具,不注入图片中继相关逻辑与服务',
-            ),
-          ),
-
-          // 子代理委派提示开关
-          react.createElement('div', { className: C.field },
-            react.createElement('div', { className: C.fieldHead },
-              react.createElement('span', { className: C.label }, '注入子代理委派提示'),
+              react.createElement('span', { className: C.label }, '注入工具使用提示词'),
               react.createElement('input', {
                 type: 'checkbox',
                 checked: guideOn,
@@ -235,8 +193,8 @@ window.__ModuleLoader__.load({
             ),
             react.createElement('p', { className: C.hint },
               guideOn
-                ? '开启:注入子代理委派提示(subagent_agy_ui 使用规则,需重启会话生效)'
-                : '关闭:不注入子代理委派提示',
+                ? '开启:注入工具使用提示词(看图用 read_image_agy,需重启会话生效)'
+                : '关闭:不注入工具使用提示词',
             ),
           ),
 
@@ -273,7 +231,7 @@ window.__ModuleLoader__.load({
         return ctx.slots.inject('settings.plugin.item', () => {
           return ctx.slots.register({
             name: 'settings.plugin.item',
-            id: 'llm-agy',
+            key: 'agy',
             order: 30,
             label: () => 'AntiGravity',
             inject: sectionInject,
@@ -282,22 +240,7 @@ window.__ModuleLoader__.load({
       }, 'llm-agy-client: settings.plugin.item')
     }
 
-    function apply(ctx) {
-      const sectionInject = () => ({
-        connection: ctx.connection,
-      })
-      ctx.effect(() => {
-        return ctx.slots.inject('settings.plugin.item', () => {
-          return ctx.slots.register({
-            name: 'settings.plugin.item',
-            id: 'llm-agy',
-            order: 30,
-            label: () => 'AntiGravity',
-            inject: sectionInject,
-          }, AgyCard)
-        })
-      }, 'llm-agy-client: settings.plugin.item')
-    }
+
 
     exports.apply = apply
     exports.inject = ['slots', 'connection']
