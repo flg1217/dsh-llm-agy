@@ -30,12 +30,14 @@ export declare function materializeImage(ctx: Context, block: Extract<ContentBlo
     type: 'image';
 }>, sessionId: string | undefined): Promise<string>;
 /**
- * 转换请求消息:**只消费最新一条用户输入**。
+ * 转换请求消息:**只处理用户刚输入的最新消息,历史消息一律不动**。
  *
- * - 最新一条 user 消息里的 ImageBlock:物化落盘 + 替换为路径提示文本;
- * - 更早的 user 消息里的 ImageBlock(历史重放):请求级直接丢弃,不落盘、
- *   不转换、不写会话日志——同一张图永远不会被重复消费;
- * - 历史图片消息丢弃后无剩余内容时,整条从请求中移除。
+ * - 仅当请求末尾是用户消息(新输入总是追加在末尾)时才处理;同轮工具调用后的
+ *   继续请求末尾是 assistant/tool,不触发;
+ * - 最新用户输入里的 ImageBlock:物化落盘 + 替换为路径提示文本(附件缓存复用
+ *   同一路径);
+ * - 更早的所有消息(含历史图片块)原样保留——不丢弃、不转换、不改写,保证
+ *   请求内容稳定,不破坏网关的 prompt 缓存命中。
  *
  * 完全不改动会话数据(日志、surface 都不碰)。
  */

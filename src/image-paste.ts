@@ -112,12 +112,14 @@ function imagePromptText(path: string): string {
 }
 
 /**
- * 转换请求消息:**只消费最新一条用户输入**。
+ * 转换请求消息:**只处理用户刚输入的最新消息,历史消息一律不动**。
  *
- * - 最新一条 user 消息里的 ImageBlock:物化落盘 + 替换为路径提示文本;
- * - 更早的 user 消息里的 ImageBlock(历史重放):请求级直接丢弃,不落盘、
- *   不转换、不写会话日志——同一张图永远不会被重复消费;
- * - 历史图片消息丢弃后无剩余内容时,整条从请求中移除。
+ * - 仅当请求末尾是用户消息(新输入总是追加在末尾)时才处理;同轮工具调用后的
+ *   继续请求末尾是 assistant/tool,不触发;
+ * - 最新用户输入里的 ImageBlock:物化落盘 + 替换为路径提示文本(附件缓存复用
+ *   同一路径);
+ * - 更早的所有消息(含历史图片块)原样保留——不丢弃、不转换、不改写,保证
+ *   请求内容稳定,不破坏网关的 prompt 缓存命中。
  *
  * 完全不改动会话数据(日志、surface 都不碰)。
  */
@@ -126,39 +128,25 @@ export async function convertPastedImages(
   messages: readonly Message[],
   sessionId?: string,
 ): Promise<Message[]> {
-  // 最新一条用户消息的下标:只有它携带的图片会被物化并转换为路径文本。
-  let lastUserIndex = -1
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.role === 'user') {
-      lastUserIndex = i
-      break
-    }
+  const last = messages[messages.length - 1]
+  // 不是用户消息(同轮工具继续)或最新输入没有图片:不处理任何内容。
+  if (last?.role !== 'user' || !last.content.some((b) => b.type === 'image')) {
+    return [...messages]
   }
 
-  let changed = false
-  const transformed: Message[] = []
-  for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i]
-    if (message.role !== 'user' || !message.content.some((b) => b.type === 'image')) {
-      transformed.push(message)
+  const content: ContentBlock[] = []
+  for (const block of last.content) {
+    if (block.type !== 'image') {
+      content.push(block)
       continue
     }
-    changed = true
-    const content: ContentBlock[] = []
-    for (const block of message.content) {
-      if (block.type !== 'image') {
-        content.push(block)
-        continue
-      }
-      if (i !== lastUserIndex) continue // 历史图片:请求级丢弃,不消费。
-      const path = await materializeImage(ctx, block as Extract<ContentBlock, { type: 'image' }>, sessionId)
-      content.push({ type: 'text', text: imagePromptText(path) })
-    }
-    // 历史图片消息被丢弃后没有剩余内容:整条从请求中移除。
-    if (content.length === 0) continue
-    transformed.push({ ...message, content })
+    const path = await materializeImage(ctx, block as Extract<ContentBlock, { type: 'image' }>, sessionId)
+    content.push({ type: 'text', text: imagePromptText(path) })
   }
-  return changed ? transformed : [...messages]
+  // 仅替换末尾这条最新用户消息,历史消息保持同一引用、完全不变。
+  return messages.map((message, index) =>
+    index === messages.length - 1 ? { ...message, content } : message,
+  )
 }
 
 /**
