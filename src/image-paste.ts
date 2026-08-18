@@ -12,6 +12,8 @@
  *      ImageBlock 从 attachment 读字节 → 落盘到工作区
  *      .dsh-llm-agy/tmp/pasted-images/ → 替换为"[图片已保存到 <路径>]"文本
  *      → 接管调用原 adapter.stream(文本模型收到路径文本);
+ *      同时把会话 surface 里那条 user/message 事件改写为路径文本——
+ *      图片只消费一次,后续请求从 surface 构建历史时根本不再包含图片。
  *   3. 主代理调用 read_image(AGY 版)或 subagent_agy_ui 看图。
  * @module llm-agy/image-paste
  */
@@ -101,6 +103,74 @@ function extensionOf(mediaType: string): string {
   }
 }
 
+/** 会话日志事件的最小可读形状(插件只读 seq/data/surfaceOp,不改其它字段)。 */
+interface SessionEventLike {
+  type: string
+  seq?: number
+  surfaceOp?: unknown
+  data?: { role?: string; content?: readonly ContentBlock[] }
+}
+
+/** 某事件是否为覆盖指定 seq 的 surface 替换(区分于普通 append)。 */
+function isReplaceOver(event: SessionEventLike, seq: number): boolean {
+  const op = event.surfaceOp
+  return typeof op === 'object' && op !== null
+    && (op as { op?: string }).op === 'replace'
+    && (op as { start?: number }).start === seq
+}
+
+/**
+ * 源头根治:改写会话的模型可见历史(surface)。
+ *
+ * dsh 的请求是无状态的——每个请求都从会话事件重建完整消息历史,粘贴图片的那条
+ * user/message 事件始终带着 ImageBlock,所以若不处理,图片会在每个请求里被
+ * 重新消费(重放)。这里把仍带 ImageBlock 的 user/message 事件改写为路径文本:
+ * surface 替换只影响模型可见层(人工转录保持原样,UI 里的图片还在),改写后
+ * 后续请求从 surface 构建历史时根本不再包含图片,不存在重放。
+ *
+ * 幂等:日志里已有覆盖该 seq 的替换事件时跳过,进程重启后也不会重复改写。
+ */
+export async function rewritePastedImageEvents(
+  ctx: Context,
+  sessionId: string | undefined,
+): Promise<void> {
+  if (sessionId === undefined) return
+  const sessions = ctx.get('sessions') as {
+    get: (id: string) => {
+      events?: SessionEventLike[]
+      append?: (type: string, data: unknown, options?: object) => unknown
+    } | undefined
+  } | undefined
+  const session = sessions?.get(sessionId)
+  if (session === undefined || !Array.isArray(session.events) || typeof session.append !== 'function') return
+
+  for (const event of session.events) {
+    if (event.type !== 'user/message') continue
+    if (!Number.isSafeInteger(event.seq)) continue
+    const content = event.data?.content
+    if (content === undefined || !content.some((block) => block?.type === 'image')) continue
+    // 已被 surface 替换过(本进程或先前进程已消费)则跳过,避免重复改写同一区间。
+    if (session.events.some((other) => isReplaceOver(other, event.seq!))) continue
+
+    const converted: ContentBlock[] = []
+    for (const block of content) {
+      if (block.type !== 'image') {
+        converted.push(block)
+        continue
+      }
+      const path = await materializeImage(ctx, block as Extract<ContentBlock, { type: 'image' }>, sessionId)
+      converted.push({
+        type: 'text',
+        text: `[用户粘贴了一张图片,已保存到本地:${path}。请调用 read_image 工具查看并分析这张图片。]`,
+      })
+    }
+    session.append('user/message', { ...event.data, content: converted }, {
+      surfaceOp: { op: 'replace', start: event.seq, end: event.seq },
+      sourceEventSeqs: [event.seq],
+    })
+  }
+}
+
 /** 转换消息:ImageBlock → 路径文本;返回新消息数组。 */
 export async function convertPastedImages(
   ctx: Context,
@@ -174,6 +244,8 @@ export function installImageRelay(ctx: Context): void {
 
     return (async function* (): AsyncGenerator<StreamChunk> {
       const messages = await convertPastedImages(ctx, options.messages, sessionId)
+      // 源头根治:改写会话 surface,让后续请求不再包含图片(不存在重放)。
+      await rewritePastedImageEvents(ctx, sessionId)
       yield* adapter.stream({ ...options, messages })
     })()
   })
