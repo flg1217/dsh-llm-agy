@@ -20,7 +20,7 @@
  *      最新用户输入里的 ImageBlock 从 attachment 读字节 → 落盘到工作区
  *      .dsh-llm-agy/tmp/pasted-images/ → 替换为"[图片已保存到 <路径>]"文本
  *      → 接管调用原 adapter.stream(文本模型收到路径文本);
- *   3. 主代理调用 read_image(AGY 版)或 subagent_agy_ui 看图。
+ *   3. 主代理调用 read_image_agy 或 subagent_agy_ui 看图。
  * @module llm-agy/image-paste
  */
 import type { Context } from '@deepseek-ai/cordis';
@@ -36,7 +36,7 @@ export declare function materializeImage(ctx: Context, block: Extract<ContentBlo
  * 转走,不能原样透传。
  *
  * - **最新用户输入**(请求末尾的用户消息)里的图片:完整提示,引导模型调用
- *   read_image 消费;
+ * *   read_image_agy 消费;
  * - **历史**用户消息里的图片:转换为中性的路径引用(不重复引导消费,不打扰);
  * - 转换是**确定性**的:同一附件(同会话)永远映射到同一路径文本(附件缓存),
  *   因此每次请求内容完全一致,网关 prompt 缓存照常命中;

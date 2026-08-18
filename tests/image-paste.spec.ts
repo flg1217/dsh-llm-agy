@@ -1,7 +1,7 @@
 /**
  * image-paste 单元测试:
  * - 所有用户消息里的 ImageBlock 都转换为文本(文本模型的流式适配器会硬拒裸图片块);
- * - 最新用户输入用完整提示引导 read_image;历史消息用中性路径引用,不重复消费;
+ * - 最新用户输入用完整提示引导 read_image_agy;历史消息用中性路径引用,不重复消费;
  * - 转换为确定性输出:同一附件同会话永远同一路径文本 → 请求内容稳定,网关
  *   prompt 缓存照常命中;
  * - 同轮工具调用后的继续请求同样转换,内容与前序请求一致;
@@ -135,7 +135,7 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     expect(text?.type).toBe('text')
     const normalized = (text as { text: string }).text.replace(/\\/g, '/')
     expect(normalized).toContain('.dsh-llm-agy/tmp/pasted-images')
-    expect(normalized).toContain('请调用 read_image')
+    expect(normalized).toContain('请调用 read_image_agy')
     expect(pastedImageFiles()).toHaveLength(1)
   })
 
@@ -158,7 +158,7 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     expect(history?.[0]).toStrictEqual(textBlock('看这张图'))
     const ref = history?.[1] as { text: string }
     expect(ref.text).toContain('图片已保存到')
-    expect(ref.text).not.toContain('请调用 read_image')
+    expect(ref.text).not.toContain('请调用 read_image_agy')
     // 不再残留任何 ImageBlock(文本模型适配器硬拒裸图)。
     expect(out.every((m) => m.content.every((b) => b.type !== 'image'))).toBe(true)
   })
@@ -178,10 +178,10 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     // 历史:中性引用。
     const oldText = out[0]?.content[0] as { text: string }
     expect(oldText.text).toContain('图片已保存到')
-    expect(oldText.text).not.toContain('请调用 read_image')
+    expect(oldText.text).not.toContain('请调用 read_image_agy')
     // 最新:完整提示。
     const latestText = out[2]?.content[0] as { text: string }
-    expect(latestText.text).toContain('请调用 read_image')
+    expect(latestText.text).toContain('请调用 read_image_agy')
     expect(out.every((m) => m.content.every((b) => b.type !== 'image'))).toBe(true)
   })
 
@@ -189,7 +189,7 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     const { ctx, calls } = makeCtx()
     const continuation: Message[] = [
       { role: 'user', content: [imageBlock('sha256-turn') as unknown as ContentBlock] },
-      { role: 'assistant', content: [textBlock('read_image 调用')] },
+      { role: 'assistant', content: [textBlock('read_image_agy 调用')] },
       { role: 'tool', content: [textBlock('(工具结果)')] },
     ]
 
@@ -203,7 +203,7 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     expect(second).toStrictEqual(first)
     const text = first[0]?.content[0] as { text: string }
     expect(text.text).toContain('图片已保存到')
-    expect(text.text).not.toContain('请调用 read_image') // 同轮继续不是新输入。
+    expect(text.text).not.toContain('请调用 read_image_agy') // 同轮继续不是新输入。
     expect(first.every((m) => m.content.every((b) => b.type !== 'image'))).toBe(true)
   })
 
@@ -243,7 +243,7 @@ describe('convertPastedImages:全部图片转文本,最新完整提示,历史中
     expect(out[0]?.content).toHaveLength(2)
     expect(out[0]?.content[0]).toStrictEqual(textBlock('分析这张图的配色'))
     const text = out[0]?.content[1] as { text: string }
-    expect(text.text).toContain('请调用 read_image')
+    expect(text.text).toContain('请调用 read_image_agy')
     expect(pastedImageFiles()).toHaveLength(1)
   })
 })
