@@ -125,7 +125,7 @@ window.__ModuleLoader__.load({
       const onStatus = react.useCallback(() => runProbe('status', setStatusText, setChecking), [runProbe])
       const onTest = react.useCallback(() => runProbe('test', setTestText, setTesting), [runProbe])
 
-      // 看图分工提示开关:读写 agy settings namespace 的 delegationGuide。
+      // 子代理委派提示开关:读写 agy settings namespace 的 delegationGuide。
       const [guideOn, setGuideOn] = react.useState(true)
       react.useEffect(() => {
         let cancelled = false
@@ -222,10 +222,10 @@ window.__ModuleLoader__.load({
             ),
           ),
 
-          // 看图分工提示开关
+          // 子代理委派提示开关
           react.createElement('div', { className: C.field },
             react.createElement('div', { className: C.fieldHead },
-              react.createElement('span', { className: C.label }, '注入工具使用提示词'),
+              react.createElement('span', { className: C.label }, '注入子代理委派提示'),
               react.createElement('input', {
                 type: 'checkbox',
                 checked: guideOn,
@@ -235,8 +235,8 @@ window.__ModuleLoader__.load({
             ),
             react.createElement('p', { className: C.hint },
               guideOn
-                ? '开启:注入工具使用提示词(看图用 read_image_agy,需重启会话生效)'
-                : '关闭:不注入工具使用提示词',
+                ? '开启:注入子代理委派提示(subagent_agy_ui 使用规则,需重启会话生效)'
+                : '关闭:不注入子代理委派提示',
             ),
           ),
 

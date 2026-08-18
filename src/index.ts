@@ -114,6 +114,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('settings/updated', (ns: string) => {
     if (ns === 'agy') syncImageServices()
   })
-  // 全局看图分工提示(section),受 agy namespace 的 delegationGuide 开关控制。
+  // 全局子代理委派提示(section),受 agy namespace 的 delegationGuide 开关控制。
   installDelegationGuide(ctx)
 }
