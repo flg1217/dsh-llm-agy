@@ -149,16 +149,51 @@ describe('convertPastedImages:ImageBlock → 路径文本', () => {
     expect(out).toStrictEqual(messages)
   })
 
-  it('同一图片消息被反复转换(模拟历史重放)只产生一个文件', async () => {
+  it('同一图片消息被反复转换(模拟历史重放):首次落盘并提示,之后丢弃不再消费', async () => {
     const { ctx, calls } = makeCtx()
     const block = imageBlock('sha256-replay')
     const messages: Message[] = [{ role: 'user', content: [block as unknown as ContentBlock] }]
 
-    await convertPastedImages(ctx as never, messages, sessionId)
-    await convertPastedImages(ctx as never, messages, sessionId)
-    await convertPastedImages(ctx as never, messages, sessionId)
+    const first = await convertPastedImages(ctx as never, messages, sessionId)
+    const second = await convertPastedImages(ctx as never, messages, sessionId)
+    const third = await convertPastedImages(ctx as never, messages, sessionId)
+
+    // 只读一次附件、只写一个文件。
+    expect(calls[0]).toBe(1)
+    expect(pastedImageFiles()).toHaveLength(1)
+    // 首次转换:提示模型阅读图片。
+    const firstText = first[0]?.content[0]
+    expect(firstText?.type).toBe('text')
+    expect((firstText as { text: string }).text).toContain('已保存到本地')
+    // 后续重放:不再提示消费同一张图(丢弃图片块,仅保留最小占位)。
+    for (const out of [second, third]) {
+      const text = out[0]?.content[0]
+      expect(text?.type).toBe('text')
+      expect((text as { text: string }).text).not.toContain('已保存到本地')
+      expect((text as { text: string }).text).not.toContain('read_image')
+    }
+  })
+
+  it('带文本的图片消息:首次转换保留文本+路径提示,后续重放只保留文本', async () => {
+    const { ctx, calls } = makeCtx()
+    const messages: Message[] = [{
+      role: 'user',
+      content: [
+        { type: 'text', text: '分析这张图的配色' },
+        imageBlock('sha256-mixed') as unknown as ContentBlock,
+      ],
+    }]
+
+    const first = await convertPastedImages(ctx as never, messages, sessionId)
+    const second = await convertPastedImages(ctx as never, messages, sessionId)
 
     expect(calls[0]).toBe(1)
     expect(pastedImageFiles()).toHaveLength(1)
+    // 首次:两个块(文本 + 路径提示)。
+    expect(first[0]?.content).toHaveLength(2)
+    // 后续:只剩文本块,图片被丢弃。
+    expect(second[0]?.content).toHaveLength(1)
+    expect(second[0]?.content[0]?.type).toBe('text')
+    expect((second[0]?.content[0] as { text: string }).text).toBe('分析这张图的配色')
   })
 })

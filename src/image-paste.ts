@@ -121,11 +121,20 @@ export async function convertPastedImages(
         content.push(block)
         continue
       }
-      const path = await materializeImage(ctx, block as Extract<ContentBlock, { type: 'image' }>, sessionId)
+      const image = block as Extract<ContentBlock, { type: 'image' }>
+      const id = String(image.attachment?.attachmentId ?? 'paste').replace(/[^a-zA-Z0-9_-]/g, '_')
+      // 图片只消费一次:首次转换落盘并提示模型阅读;后续请求重放历史时直接丢弃
+      // 该图片块,不再让模型重复消费同一张图。
+      if (materializedImages.has(materializeKey(sessionId, id))) continue
+      const path = await materializeImage(ctx, image, sessionId)
       content.push({
         type: 'text',
         text: `[用户粘贴了一张图片,已保存到本地:${path}。请调用 read_image 工具查看并分析这张图片。]`,
       })
+    }
+    // 图片全部被丢弃后保留一个最小占位,避免空内容消息。
+    if (content.length === 0) {
+      content.push({ type: 'text', text: '[图片已在上轮消息中消费]' })
     }
     transformed.push({ ...message, content })
   }
