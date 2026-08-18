@@ -231,6 +231,8 @@ window.__ModuleLoader__.load({
         return ctx.slots.inject('settings.plugin.item', () => {
           return ctx.slots.register({
             name: 'settings.plugin.item',
+            // id(rc.6 list 槽)与 key(rc.7 keyed 槽)都传,兼容两种槽类型。
+            id: 'agy',
             key: 'agy',
             order: 30,
             label: () => 'AntiGravity',
