@@ -1,10 +1,11 @@
 /**
  * image-paste 单元测试:
- * - 只处理"用户刚输入的最新消息":请求末尾必须是用户消息才触发;
- * - 最新输入里的图片物化落盘 + 路径提示;历史消息一律不动(不丢弃、不转换、
- *   不改写),保证请求内容稳定、不破坏 prompt 缓存命中;
- * - 同轮工具调用后的继续请求(末尾不是用户消息)不触发;
- * - 同一附件重复输入时靠缓存复用同一路径,只产生一个文件;
+ * - 所有用户消息里的 ImageBlock 都转换为文本(文本模型的流式适配器会硬拒裸图片块);
+ * - 最新用户输入用完整提示引导 read_image;历史消息用中性路径引用,不重复消费;
+ * - 转换为确定性输出:同一附件同会话永远同一路径文本 → 请求内容稳定,网关
+ *   prompt 缓存照常命中;
+ * - 同轮工具调用后的继续请求同样转换,内容与前序请求一致;
+ * - 同一附件重复输入只落盘一次;
  * - 扩展名映射与消息转换行为。
  */
 import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
@@ -122,8 +123,8 @@ describe('materializeImage:路径与扩展名', () => {
   })
 })
 
-describe('convertPastedImages:只处理最新用户输入,历史完全不动', () => {
-  it('最新用户消息(请求末尾)的图片块被替换为含路径的文本块', async () => {
+describe('convertPastedImages:全部图片转文本,最新完整提示,历史中性引用', () => {
+  it('最新用户消息的图片块被替换为完整路径提示', async () => {
     const { ctx } = makeCtx()
     const messages: Message[] = [{ role: 'user', content: [imageBlock('sha256-convert') as unknown as ContentBlock] }]
 
@@ -134,72 +135,76 @@ describe('convertPastedImages:只处理最新用户输入,历史完全不动', (
     expect(text?.type).toBe('text')
     const normalized = (text as { text: string }).text.replace(/\\/g, '/')
     expect(normalized).toContain('.dsh-llm-agy/tmp/pasted-images')
-    expect(normalized).toContain('read_image')
+    expect(normalized).toContain('请调用 read_image')
     expect(pastedImageFiles()).toHaveLength(1)
   })
 
-  it('历史消息完全不动:含图片的历史用户消息原样保留,不落盘、不转换', async () => {
+  it('历史消息里的图片块转换为中性路径引用,不引导重复消费', async () => {
     const { ctx, calls } = makeCtx()
-    const historyImage = imageBlock('sha256-history') as unknown as ContentBlock
     const messages: Message[] = [
-      { role: 'user', content: [textBlock('看这张图'), historyImage] },
+      { role: 'user', content: [textBlock('看这张图'), imageBlock('sha256-history') as unknown as ContentBlock] },
       { role: 'assistant', content: [textBlock('分析完毕')] },
       { role: 'user', content: [textBlock('继续')] },
     ]
 
     const out = await convertPastedImages(ctx as never, messages, sessionId)
 
-    // 历史图片没有被读取、没有落盘,且图片块原样保留(与输入完全一致)。
-    expect(calls[0]).toBe(0)
-    expect(pastedImageFiles()).toHaveLength(0)
-    expect(out[0]?.content).toStrictEqual([textBlock('看这张图'), historyImage])
-    expect(out[0]).toBe(messages[0]) // 同一引用,历史消息未被触碰。
-    expect(out[1]).toBe(messages[1])
-    expect(out[2]).toBe(messages[2])
+    // 图片被读取并落盘(历史也需要转换为文本,文本模型不能收裸图)。
+    expect(calls[0]).toBe(1)
+    expect(pastedImageFiles()).toHaveLength(1)
+    // 历史用户消息:文本保留 + 中性引用;不含引导消费的完整提示。
+    const history = out[0]?.content
+    expect(history).toHaveLength(2)
+    expect(history?.[0]).toStrictEqual(textBlock('看这张图'))
+    const ref = history?.[1] as { text: string }
+    expect(ref.text).toContain('图片已保存到')
+    expect(ref.text).not.toContain('请调用 read_image')
+    // 不再残留任何 ImageBlock(文本模型适配器硬拒裸图)。
+    expect(out.every((m) => m.content.every((b) => b.type !== 'image'))).toBe(true)
   })
 
-  it('最新用户输入带图片时被转换,历史消息保持原样', async () => {
+  it('最新用户输入带图片时用完整提示,历史图片用中性引用', async () => {
     const { ctx, calls } = makeCtx()
     const messages: Message[] = [
-      { role: 'user', content: [textBlock('第一轮问题')] },
+      { role: 'user', content: [imageBlock('sha256-old') as unknown as ContentBlock] },
       { role: 'assistant', content: [textBlock('第一轮回答')] },
       { role: 'user', content: [imageBlock('sha256-latest') as unknown as ContentBlock] },
     ]
 
     const out = await convertPastedImages(ctx as never, messages, sessionId)
 
-    expect(calls[0]).toBe(1)
-    expect(pastedImageFiles()).toHaveLength(1)
-    expect(out).toHaveLength(3)
-    // 历史消息未被改动(同一引用)。
-    expect(out[0]).toBe(messages[0])
-    expect(out[1]).toBe(messages[1])
-    // 最新输入被转换为路径提示。
-    const text = out[2]?.content[0]
-    expect(text?.type).toBe('text')
-    expect((text as { text: string }).text).toContain('已保存到本地')
+    expect(calls[0]).toBe(2)
+    expect(pastedImageFiles()).toHaveLength(2)
+    // 历史:中性引用。
+    const oldText = out[0]?.content[0] as { text: string }
+    expect(oldText.text).toContain('图片已保存到')
+    expect(oldText.text).not.toContain('请调用 read_image')
+    // 最新:完整提示。
+    const latestText = out[2]?.content[0] as { text: string }
+    expect(latestText.text).toContain('请调用 read_image')
+    expect(out.every((m) => m.content.every((b) => b.type !== 'image'))).toBe(true)
   })
 
-  it('同轮工具调用后的继续请求(末尾不是用户消息)完全不处理', async () => {
+  it('同轮工具继续请求同样转换,内容与前序请求一致(确定性)', async () => {
     const { ctx, calls } = makeCtx()
-    // 第一轮请求:末尾是用户消息(新输入),图片被消费。
-    const fresh: Message[] = [{ role: 'user', content: [imageBlock('sha256-turn') as unknown as ContentBlock] }]
-    await convertPastedImages(ctx as never, fresh, sessionId)
-    expect(calls[0]).toBe(1)
-
-    // 同轮继续:末尾是工具结果,不触发——整份消息原样返回(图片块仍在)。
     const continuation: Message[] = [
       { role: 'user', content: [imageBlock('sha256-turn') as unknown as ContentBlock] },
       { role: 'assistant', content: [textBlock('read_image 调用')] },
       { role: 'tool', content: [textBlock('(工具结果)')] },
     ]
+
+    const first = await convertPastedImages(ctx as never, continuation, sessionId)
     const second = await convertPastedImages(ctx as never, continuation, sessionId)
 
-    expect(calls[0]).toBe(1) // 没有再次读取附件。
-    expect(pastedImageFiles()).toHaveLength(1) // 没有新增文件。
-    expect(second).toStrictEqual(continuation) // 内容完全不变。
-    expect(second[0]).toBe(continuation[0])
-    expect(second[0]?.content.some((b) => b.type === 'image')).toBe(true) // 图片块保留。
+    // 同一附件只读一次、只落盘一次。
+    expect(calls[0]).toBe(1)
+    expect(pastedImageFiles()).toHaveLength(1)
+    // 两次转换输出完全一致(请求内容稳定 → prompt 缓存命中)。
+    expect(second).toStrictEqual(first)
+    const text = first[0]?.content[0] as { text: string }
+    expect(text.text).toContain('图片已保存到')
+    expect(text.text).not.toContain('请调用 read_image') // 同轮继续不是新输入。
+    expect(first.every((m) => m.content.every((b) => b.type !== 'image'))).toBe(true)
   })
 
   it('同一附件再次作为新输入被处理时复用缓存路径,只产生一个文件', async () => {
@@ -211,9 +216,7 @@ describe('convertPastedImages:只处理最新用户输入,历史完全不动', (
 
     expect(calls[0]).toBe(1)
     expect(pastedImageFiles()).toHaveLength(1)
-    const firstText = first[0]?.content[0]
-    const secondText = second[0]?.content[0]
-    expect((firstText as { text: string }).text).toBe((secondText as { text: string }).text)
+    expect(second).toStrictEqual(first)
   })
 
   it('无图片的消息原样返回', async () => {
@@ -228,7 +231,7 @@ describe('convertPastedImages:只处理最新用户输入,历史完全不动', (
     expect(out).toStrictEqual(messages)
   })
 
-  it('最新输入同时含文本和图片:文本保留,图片转换为路径提示', async () => {
+  it('最新输入同时含文本和图片:文本保留,图片转换为完整提示', async () => {
     const { ctx } = makeCtx()
     const messages: Message[] = [{
       role: 'user',
@@ -239,9 +242,8 @@ describe('convertPastedImages:只处理最新用户输入,历史完全不动', (
 
     expect(out[0]?.content).toHaveLength(2)
     expect(out[0]?.content[0]).toStrictEqual(textBlock('分析这张图的配色'))
-    const text = out[0]?.content[1]
-    expect(text?.type).toBe('text')
-    expect((text as { text: string }).text).toContain('已保存到本地')
+    const text = out[0]?.content[1] as { text: string }
+    expect(text.text).toContain('请调用 read_image')
     expect(pastedImageFiles()).toHaveLength(1)
   })
 })

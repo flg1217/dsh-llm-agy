@@ -30,16 +30,20 @@ export declare function materializeImage(ctx: Context, block: Extract<ContentBlo
     type: 'image';
 }>, sessionId: string | undefined): Promise<string>;
 /**
- * 转换请求消息:**只处理用户刚输入的最新消息,历史消息一律不动**。
+ * 转换请求消息:把**所有**用户消息里的 ImageBlock 都转换为文本——文本模型
+ * (如 deepseek-v4-flash)的流式适配器会在序列化时硬拒裸图片块
+ * (`pi-ai model "X" does not support image input`),所以历史里的图片块也必须
+ * 转走,不能原样透传。
  *
- * - 仅当请求末尾是用户消息(新输入总是追加在末尾)时才处理;同轮工具调用后的
- *   继续请求末尾是 assistant/tool,不触发;
- * - 最新用户输入里的 ImageBlock:物化落盘 + 替换为路径提示文本(附件缓存复用
- *   同一路径);
- * - 更早的所有消息(含历史图片块)原样保留——不丢弃、不转换、不改写,保证
- *   请求内容稳定,不破坏网关的 prompt 缓存命中。
+ * - **最新用户输入**(请求末尾的用户消息)里的图片:完整提示,引导模型调用
+ *   read_image 消费;
+ * - **历史**用户消息里的图片:转换为中性的路径引用(不重复引导消费,不打扰);
+ * - 转换是**确定性**的:同一附件(同会话)永远映射到同一路径文本(附件缓存),
+ *   因此每次请求内容完全一致,网关 prompt 缓存照常命中;
+ * - 同轮工具调用后的继续请求(末尾不是用户消息)同样按此规则转换,内容保持
+ *   与前序请求一致。
  *
- * 完全不改动会话数据(日志、surface 都不碰)。
+ * 完全不改动会话数据(日志、surface 都不碰),只影响本次请求的负载。
  */
 export declare function convertPastedImages(ctx: Context, messages: readonly Message[], sessionId?: string): Promise<Message[]>;
 /**
