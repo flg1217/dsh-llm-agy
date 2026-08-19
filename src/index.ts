@@ -10,7 +10,6 @@ import { AgyLlmAdapter } from './adapter.js'
 import { AgySearchProvider } from './search.js'
 import { readImageAgyEnabled, registerAgySettings } from './settings.js'
 import { installImageRelay } from './image-paste.js'
-import { registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
 import { registerSubagentTool } from './subagent-tool.js'
 
@@ -99,20 +98,18 @@ export function apply(ctx: Context, config: Config): void {
   // 注:read_image 覆盖由 router-agy 预设的 read-image-override.mjs
   // (agent 作用域同名注册 shadow 全局)实现,受 agy namespace 的
   // overrideReadImage 开关控制;此处无需注册。
-  // 看图工具与图片中继:受 agy settings namespace 的 readImageAgy 开关控制
-  // (默认开启)。关闭时不注册 read_image_agy 工具、不注入 llm/stream 中继与
-  // resolveModelInfo 包装;设置面板切换后热同步(无需重启)。
+  // 图片中继(AGY 就地读图):受 agy settings namespace 的 readImageAgy 开关控制
+  // (默认开启)。关闭时不注入 llm/stream 中继与 resolveModelInfo 包装;
+  // 设置面板切换后热同步(无需重启)。
   const imageServiceDisposers = new Set<() => void>()
   const syncImageServices = () => {
     const enabled = readImageAgyEnabled(ctx)
     if (enabled) {
       if (imageServiceDisposers.size === 0) {
-        const disposeTool = registerReadImageAgy(ctx, () => ({
+        const disposeRelay = installImageRelay(ctx, () => ({
           command: config.command ?? 'agy',
           proxy: config.proxy ?? 'http://127.0.0.1:7890',
         }))
-        if (disposeTool !== undefined) imageServiceDisposers.add(disposeTool)
-        const disposeRelay = installImageRelay(ctx)
         if (disposeRelay !== undefined) imageServiceDisposers.add(disposeRelay)
       }
     } else {

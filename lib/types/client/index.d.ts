@@ -67,7 +67,6 @@ window.__ModuleLoader__.load({
     ]
     const TOOLS = [
       { name: 'subagent_agy_ui', desc: '前端/UI 设计、样式、视觉实现、截图核验(continuable 可复用长线会话)' },
-      { name: 'read_image_agy', desc: '看图:AGY/Gemini 读图返回文字描述(全局常驻,文本模型也可用)' },
       { name: 'web_search', desc: 'web_search 走 AGY 的 Google 搜索(search_web),深度搜索返回完整内容' },
     ]
 
@@ -149,6 +148,30 @@ window.__ModuleLoader__.load({
         }
       }, [connection, guideOn])
 
+      // 使用 AGY 读取图片开关:读写 agy settings namespace 的 readImageAgy。
+      const [imageRelayOn, setImageRelayOn] = react.useState(true)
+      react.useEffect(() => {
+        let cancelled = false
+        connection.api.settings.describe({}).then((resp) => {
+          if (cancelled) return
+          const ns = resp?.result?.value?.namespaces?.find?.((n) => n.ns === 'agy')
+          if (ns?.value?.readImageAgy !== undefined) setImageRelayOn(Boolean(ns.value.readImageAgy))
+        }).catch(() => {})
+        return () => { cancelled = true }
+      }, [connection])
+      const toggleImageRelay = react.useCallback(async () => {
+        const next = !imageRelayOn
+        setImageRelayOn(next)
+        try {
+          await connection.api.settings.mutate({
+            ns: 'agy',
+            ops: [{ path: 'readImageAgy', op: 'set', value: next }],
+          })
+        } catch (e) {
+          setImageRelayOn(!next)
+        }
+      }, [connection, imageRelayOn])
+
       return react.createElement('li', { className: `${C.card} ${open ? C.cardOpen : ''}` },
         // 卡片头(与官方 PluginCard 一致)
         react.createElement('button', {
@@ -193,8 +216,26 @@ window.__ModuleLoader__.load({
             ),
             react.createElement('p', { className: C.hint },
               guideOn
-                ? '开启:注入工具使用提示词(看图用 read_image_agy,需重启会话生效)'
+                ? '开启:注入工具使用提示词'
                 : '关闭:不注入工具使用提示词',
+            ),
+          ),
+
+          // 使用 AGY 读取图片开关
+          react.createElement('div', { className: C.field },
+            react.createElement('div', { className: C.fieldHead },
+              react.createElement('span', { className: C.label }, '使用 AGY 读取图片'),
+              react.createElement('input', {
+                type: 'checkbox',
+                checked: imageRelayOn,
+                onChange: toggleImageRelay,
+                style: { accentColor: 'var(--dsw-alias-brand-primary)', width: 16, height: 16, cursor: 'pointer' },
+              }),
+            ),
+            react.createElement('p', { className: C.hint },
+              imageRelayOn
+                ? '开启:粘贴的图片由 AGY 读取为文字描述,文本模型也能看图(无需切换模型)'
+                : '关闭:粘贴图片按原生流程处理(多模态模型可自己看图)',
             ),
           ),
 

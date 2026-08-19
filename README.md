@@ -14,7 +14,7 @@
 | --- | --- |
 | **独立推理子代理** | 将前端/UI 等任务委派给 AGY 驱动的子代理(Gemini 3.7 Flash High),与主代理并行,长线会话可复用 |
 | **深度网页搜索** | `web_search` 工具经由 AGY 的 Google 搜索通道完成**完整深度检索**——搜索、打开来源、阅读全文、综合成文,而非简单链接列表 |
-| **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端把图片自动落盘并转为路径文本,主代理用 `read_image_agy` 看图。全程无感,不新增模型路由、不切换模型 |
+| **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端由 AGY 就地读图,把图片转为文字描述进入消息。全程无感,不新增模型路由、不切换模型、不写磁盘 |
 | **连通性诊断面板** | dsh 设置 → 插件内的 AntiGravity 卡片:检测本机安装与登录状态、发起真实连通性测试、一键复制各平台安装命令 |
 
 插件严格遵循 dsh 官方扩展机制(profile bundle patch / `registerModelDiscovery` / `registerSearchProvider` / `llm/stream` waterfall / 客户端 slot),**不修改 dsh 任何源码**,可随 dsh 平滑升级。
@@ -34,9 +34,8 @@
 纯文本主模型(如 DeepSeek V4 Flash)不支持图片输入,但本插件让"输入栏贴图"开箱即用:
 
 - **粘贴即用**:在任意输入栏粘贴图片,原生走 ImageBlock;插件在后端把图片落盘到工作区 `.dsh-llm-agy/tmp/pasted-images/`,替换为路径文本后交回原模型路由
-- **`read_image_agy` 工具**(全局常驻):主代理直接调用即可看图——AGY/Gemini 读图并返回文字描述,任何文本模型都可用
 - **完全透明**:不新增 provider 路由、不切换模型、不改前端,用户无感知
-- **工具使用提示词**:插件注入全局 system prompt section,引导主代理"看图直接用 `read_image_agy`、禁止委派子代理读图、不轮询后台子代理"(设置面板可关闭)
+- **工具使用提示词**:插件注入全局 system prompt section,引导主代理"图片内容已在消息中,禁止委派子代理读图、不轮询后台子代理"(设置面板可关闭)
 
 ### 3. 深度网页搜索(搜索 provider `agy`)
 
@@ -54,7 +53,7 @@
 - **检测安装/登录**:一键确认本机是否已安装 AGY、是否已登录
 - **连通性测试**:发起真实指令,直接展示 AGY 的实际回复内容
 - **安装命令**:Windows(winget)/ macOS(Homebrew)/ Linux(curl)/ npm 四平台命令,一键复制
-- **工具说明**:内置工具速查(`subagent_agy_ui` / `read_image_agy` / `web_search`)
+- **工具说明**:内置工具速查(`subagent_agy_ui` / `web_search`)
 - **开关**:"注入工具使用提示词"——控制是否注入全局工具使用提示词(默认开)
 - 面板交互走官方模型探测通道(`api.llm.discoverModels`),**不占用会话**
 
@@ -124,20 +123,19 @@ npm install -g @antigravity/cli
 
 ### 文本模型读图
 
-无需任何配置——`read_image_agy` 工具全局常驻,任何会话(含纯文本模型)的输入栏粘贴图片后,主代理会直接调用它看图:
+无需任何配置——输入栏粘贴图片后,后端在请求组装时**由 AGY 就地读图**,把图片转为文字描述直接进入消息,主代理直接基于图片内容回答(无需调用任何工具)。
 
 ```
 用户:请分析这张图片(粘贴图片)
-主代理:调用 read_image_agy → 返回 AGY/Gemini 的文字描述 → 继续分析
+后端:AGY 读图 → 消息里携带图片内容描述 → 主代理直接分析
 ```
-
 ### 子代理委派给 AGY
 
 **无需配置**——插件启动时自动挂载官方 `@deepseek-ai/dsh-tool-subagent` 注册工具(全局可见,所有会话/预设生效):
 
 - `subagent_agy_ui`(continuable,可复用长线会话):前端/UI 设计、样式研究、视觉实现、截图核验
 
-由 AGY/Gemini 驱动(`agentOptions.provider: agy`),独立于主代理的模型。如不需要,可在插件配置里设 `registerSubagentTools: false` 关闭。看图不委派子代理——用全局常驻的 `read_image_agy` 直接读图。
+由 AGY/Gemini 驱动(`agentOptions.provider: agy`),独立于主代理的模型。如不需要,可在插件配置里设 `registerSubagentTools: false` 关闭。看图不委派子代理——粘贴图片由 AGY 就地读图。
 
 前端/UI 类任务:委派 `subagent_agy_ui`,由独立 Gemini 模型完成设计、实现与截图核验。
 
@@ -161,7 +159,7 @@ npm install -g @antigravity/cli
 │ settings.ts    settings + registerModelDiscovery      │
 │ image-paste.ts llm/stream 监听器 + resolveModelInfo   │
 │                包装:ImageBlock → 工作区路径文本       │
-│ read-image.ts  read_image_agy 工具(全局常驻)          │
+│ read-image.ts  AGY 读图执行(图片中继调用)          │
 │ delegate-guide.ts 全局工具使用提示词 section          │
 └──────────────────────────────────────────────────────┘
 ┌─────────────── 浏览器(web 半)───────────────────────┐
@@ -173,7 +171,7 @@ npm install -g @antigravity/cli
 - **装配**:`cordis.patch.yml`(bundle patch)+ package.json 的 `dsh.bundle`/`dsh.client` 清单,`dsh plugin add` 一键完成
 - **推理**:服务端 spawn AGY CLI(stream-json 协议),实时流式输出与 token 统计由 dsh harness 统一呈现
 - **图片输入**:包装 `llm.resolveModelInfo` 为文本模型声明 image 能力(绕过 dsh 的拒绝校验);`llm/stream` waterfall 监听器把 ImageBlock 落盘为路径文本后直接调用原 adapter——**不新增 provider、不切换模型、不改前端**
-- **读图**:`read_image_agy` 直接 spawn AGY 读图返回文字描述
+- **读图**:图片中继在请求组装时 spawn AGY 就地读图,返回文字描述
 - **搜索**:`search()` 直接调用 AGY,由其自主完成检索与综合
 - **面板**:检测/测试经官方 `api.llm.discoverModels` 通道触发,服务端执行、结果回显,**不写会话、不改 dsh 源码**
 

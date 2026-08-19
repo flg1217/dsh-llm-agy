@@ -16,7 +16,7 @@
 | --- | --- |
 | **Independent reasoning subagents** | Delegate frontend/UI and other tasks to AGY-driven subagents (Gemini 3.7 Flash High), running alongside your main agent; long-lived sessions are reusable |
 | **Deep web search** | The `web_search` tool performs **complete deep research** through AGY's Google search channel — search, open sources, read full content, synthesize an answer — not just a link list |
-| **Image input for text-only models** | Paste images in the composer with a pure-text main model (e.g. DeepSeek V4 Flash): the backend materializes the image to a workspace path and the agent reads it via `read_image_agy`. Fully transparent — no new provider routes, no model switching |
+| **Image input for text-only models** | Paste images in the composer with a pure-text main model (e.g. DeepSeek V4 Flash): the backend reads the image in-place via AGY and injects a text description into the message. Fully transparent — no new provider routes, no model switching, no workspace writes |
 | **Connectivity diagnostics panel** | An AntiGravity card inside dsh Settings → Plugins: check local install & login status, run a real connectivity test, copy install commands for every platform with one click |
 
 The plugin strictly follows dsh's official extension mechanisms (profile bundle patch / `registerModelDiscovery` / `registerSearchProvider` / `llm/stream` waterfall / client slots). **No dsh source code is modified**, so it keeps working across dsh upgrades.
@@ -36,9 +36,8 @@ Your main agent can delegate tasks to AGY — a second brain with its own reason
 Text-only main models (e.g. DeepSeek V4 Flash) cannot natively accept images, but this plugin makes pasting images work out of the box:
 
 - **Paste and go**: paste an image in any composer — it flows as a native ImageBlock; the backend materializes it to `.dsh-llm-agy/tmp/pasted-images/` under the workspace and replaces it with a path-text before handing the request to the original model route
-- **`read_image_agy` tool** (always registered): the main agent calls it directly to read images — AGY/Gemini reads the image and returns a text description, usable by any text-only model
 - **Fully transparent**: no new provider routes, no model switching, no frontend changes — the user never notices
-- **Tool-use policy**: the plugin injects a global system-prompt section guiding the agent ("analyze images with `read_image_agy`, never delegate image reading to a subagent, don't poll background subagents"); toggleable in the settings panel
+- **Tool-use policy**: the plugin injects a global system-prompt section guiding the agent ("image content is already in the message, never delegate image reading to a subagent, don't poll background subagents"); toggleable in the settings panel
 
 ### 2.3 Deep web search (search provider `agy`)
 
@@ -56,7 +55,7 @@ Full AGY environment check without touching a terminal:
 - **Install / login check**: one click confirms whether AGY is installed and signed in
 - **Connectivity test**: sends a real prompt and shows AGY's actual reply
 - **Install commands**: Windows (winget) / macOS (Homebrew) / Linux (curl) / npm — one-click copy
-- **Tool reference**: quick reference for the bundled tools (`subagent_agy_ui` / `read_image_agy` / `web_search`)
+- **Tool reference**: quick reference for the bundled tools (`subagent_agy_ui` / `web_search`)
 - **Toggle**: "注入工具使用提示词" — controls the global tool-use-policy prompt (on by default)
 - The panel interacts through the official model-discovery channel (`api.llm.discoverModels`); **no session is consumed**
 
@@ -126,11 +125,11 @@ After this, `web_search` returns AGY's deep-researched answer with cited sources
 
 ### Reading images with a text-only model
 
-No configuration needed — `read_image_agy` is always registered. Paste an image in any composer and the main agent reads it directly:
+No configuration needed — paste an image in any composer; the backend reads it in-place via AGY and injects a text description into the message, so the main agent answers directly from the image content (no tool calls):
 
 ```
 User: analyze this image (pastes image)
-Main agent: calls read_image_agy → gets AGY/Gemini's text description → continues
+Backend: AGY reads the image → message carries the image description → main agent analyzes directly
 ```
 
 ### Subagent delegation to AGY
@@ -139,7 +138,6 @@ Main agent: calls read_image_agy → gets AGY/Gemini's text description → cont
 
 - `subagent_agy_ui` (continuable, reusable long-lived sessions): frontend/UI design, styling research, visual implementation, screenshot verification
 
-It is driven by AGY/Gemini (`agentOptions.provider: agy`), independent of the main agent's model. To disable it, set `registerSubagentTools: false` in the plugin config. Do not delegate image reading to a subagent — use the globally resident `read_image_agy` tool instead.
 
 Frontend/UI tasks: delegate to `subagent_agy_ui` — design, implementation and screenshot verification by an independent Gemini model.
 
@@ -163,7 +161,7 @@ The plugin is dual-faced and assembled through dsh's official extension points:
 │ settings.ts     settings + registerModelDiscovery       │
 │ image-paste.ts  llm/stream listener + resolveModelInfo  │
 │                 wrapper: ImageBlock → workspace path    │
-│ read-image.ts   read_image_agy tool (always registered) │
+│ read-image.ts   AGY image reading (used by the relay)  │
 │ delegate-guide.ts  global tool-use-policy section       │
 └─────────────────────────────────────────────────────────┘
 ┌─────────────── Browser (web half) ──────────────────────┐
@@ -175,7 +173,7 @@ The plugin is dual-faced and assembled through dsh's official extension points:
 - **Assembly**: `cordis.patch.yml` (bundle patch) + `dsh.bundle`/`dsh.client` manifest in package.json; `dsh plugin add` does it all
 - **Reasoning**: the server spawns the AGY CLI (stream-json protocol); live streaming output and token stats are rendered by the dsh harness
 - **Image input**: wraps `llm.resolveModelInfo` to declare image capability for text-only models (bypassing dsh's rejection check); an `llm/stream` waterfall listener materializes ImageBlocks to workspace paths and calls the original adapter — **no new providers, no model switching, no frontend changes**
-- **Image reading**: `read_image_agy` spawns AGY directly and returns a text description
+- **Image reading**: the relay spawns AGY in-place and returns a text description
 - **Search**: `search()` calls AGY directly, which autonomously retrieves and synthesizes
 - **Panel**: status/test probes go through the official `api.llm.discoverModels` channel; the server executes and the result returns to the panel — **no session writes, no dsh source changes**
 

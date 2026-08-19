@@ -23,7 +23,7 @@ export const AgySettingsConfig = z.object({
   /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
   delegationGuide: z.boolean().default(true).description('注入子代理委派提示词'),
   /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
-  readImageAgy: z.boolean().default(true).description('启用 AGY 看图工具(read_image_agy)与图片中继'),
+  readImageAgy: z.boolean().default(true).description('使用 AGY 读取粘贴的图片'),
 })
 
 /** 读取 readImageAgy 开关(默认开启)。 */
@@ -97,7 +97,7 @@ export const INSTALL_COMMANDS = [
 /** 工具说明列表。 */
 export const TOOL_DESCRIPTIONS = [
   { name: 'subagent_agy_ui', desc: '前端/UI 设计、样式研究、视觉实现、截图核验(continuable 可复用长线会话)' },
-  { name: 'read_image_agy', desc: '看图:截图/设计稿分析(全局常驻,文本模型也可直接读图)' },
+
   { name: 'web_search(agy provider)', desc: 'web_search 工具走 AGY 的 Google 搜索(search_web),返回完整深度搜索内容' },
 ]
 
@@ -165,7 +165,7 @@ export function registerAgySettings(ctx: Context): void {
         }
         return {
           kind: 'success',
-          text: `AntiGravity(AGY)接入 dsh\n- /agy status 检测安装与登录\n- /agy test 发起测试指令(回复 hi)\n安装:${INSTALL_COMMANDS[0]}\n工具:subagent_agy_ui / read_image_agy / web_search(agy)`,
+          text: `AntiGravity(AGY)接入 dsh\n- /agy status 检测安装与登录\n- /agy test 发起测试指令(回复 hi)\n安装:${INSTALL_COMMANDS[0]}\n工具:subagent_agy_ui / web_search(agy);粘贴图片由 AGY 读图`,
         }
       },
     })
