@@ -29,8 +29,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { agyReadImage } from './read-image.js'
 
-/** 被本插件声明为支持 image 的模型路由(provider:model)。 */
+/** 被本插件声明为支持 image 的文本模型路由(provider:model)。 */
 const imageDeclared = new Set<string>()
+
+/** 原生支持多模态(image)的模型路由(provider:model):始终跳过转换拦截。 */
+const imageCapable = new Set<string>()
 
 /** 图片媒体类型 → 扩展名。 */
 function extensionOf(mediaType: string): string {
@@ -162,8 +165,14 @@ export function installImageRelay(
   const original = llm.resolveModelInfo.bind(llm)
   const wrapped = async (provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo> => {
     const info = await original(provider, model, signal)
-    if (info?.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-      imageDeclared.add(`${provider}:${model}`)
+    const key = `${provider}:${model}`
+    if (info?.inputModalities !== undefined) {
+      if (info.inputModalities.includes('image')) {
+        // 原生多模态:跳过转换拦截(图片原样给模型)。
+        imageCapable.add(key)
+        return info
+      }
+      imageDeclared.add(key)
       return { ...info, inputModalities: [...info.inputModalities, 'image'] }
     }
     return info
@@ -172,7 +181,13 @@ export function installImageRelay(
 
   // 2. llm/stream 监听器:仅处理被声明的模型,就地读图后接管调用原 adapter。
   const off = ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<StreamChunk>) => {
-    if (!imageDeclared.has(`${options.provider}:${options.model}`)) return next()
+    // 多模态模型(原生支持 image)始终跳过,包括 compaction 辅助调用;
+    // 文本模型(已声明)正常转换;compaction 且模型未知时转换兜底
+    // (compaction 把含图历史发给文本总结模型会被 UNSUPPORTED_CONTENT 拒绝)。
+    const key = `${options.provider}:${options.model}`
+    if (imageCapable.has(key)) return next()
+    const isCompaction = options.purpose === 'compaction'
+    if (!isCompaction && !imageDeclared.has(key)) return next()
     if (!hasImage(options.messages)) return next()
     const adapter = llm.adapters?.get(options.provider)?.adapter
     if (!adapter || typeof adapter.stream !== 'function') return next()
