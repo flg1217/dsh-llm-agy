@@ -12,6 +12,7 @@ import { readImageAgyEnabled, registerAgySettings } from './settings.js'
 import { installImageRelay } from './image-paste.js'
 import { installDelegationGuide } from './delegate-guide.js'
 import { registerSubagentTool } from './subagent-tool.js'
+import { registerAgyModelsTool } from './models.js'
 
 export const name = 'llm-agy'
 export const inject = ['llm', 'web', 'tools', 'subagents', 'systemPrompt']
@@ -44,7 +45,7 @@ export const Config: z<Config> = z.object({
 })
 
 /** 子代理委派工具:前端/UI 走 AGY/Gemini,独立于主模型。看图已由 read_image_agy 取代,不再注册子代理。 */
-function registerSubagentTools(ctx: Context, model: string): void {
+function registerSubagentTools(ctx: Context, model: string, command: string): void {
   const agentOptions = { provider: 'agy', model }
   // 自定义注册委派工具(替代官方 dsh-tool-subagent),以便在工具描述里
   // 内置"完整上下文"指引;机制一致(continuable 后台 + 前台回退)。
@@ -63,11 +64,15 @@ function registerSubagentTools(ctx: Context, model: string): void {
       + 'This tool runs in the background by default: it immediately returns a durable subagent id and keeps the child '
       + 'conversation available for later turns; when the run settles, the runtime sends you a notice containing its '
       + 'outcome and any final assistant message. Set `run_in_background: false` only when your next action depends on '
-      + 'receiving the result; `send_message` starts a later turn in the same child conversation.',
+      + 'receiving the result; `send_message` starts a later turn in the same child conversation. '
+      + 'Optionally pass a `model` argument with an exact model id (query `list_agy_models` for the currently '
+      + 'supported ids); omit it to use the plugin-configured default model.',
     promptDescription:
       'The complete, self-contained task for the subagent. It does not share this conversation\'s context, so include '
       + 'everything it needs: the goal, acceptance criteria, exact file paths, constraints, and the expected output format.',
   })
+  // 模型查询工具:委派前可先确认当前支持的模型 id。
+  registerAgyModelsTool(ctx, { command, toolName: 'list_agy_models' })
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -81,7 +86,7 @@ export function apply(ctx: Context, config: Config): void {
   // 子代理委派工具:前端/UI 设计(subagent_agy_ui,continuable 可复用长线会话),
   // 由 AGY/Gemini 驱动;看图不委派子代理(用全局 read_image_agy)。
   if (config.registerSubagentTools !== false) {
-    registerSubagentTools(ctx, config.model ?? 'gemini-3.7-flash-high')
+    registerSubagentTools(ctx, config.model ?? 'gemini-3.7-flash-high', config.command ?? 'agy')
   }
   // AGY 的 search_web 工具接入 dsh 搜索框架:searchProvider 配置为 'agy' 即启用。
   const searchProviderId = config.searchProviderId ?? 'agy'

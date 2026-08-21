@@ -26,7 +26,7 @@
 主代理可随时将任务委派给 AGY——一个由 Gemini 驱动、具备独立思维链与工具面的第二大脑:
 
 - 通过 `agentOptions.provider: 'agy'` 将任意子代理切换为 AGY 推理
-- 内置开箱工具:`subagent_agy_ui`(前端/UI 设计、样式研究、视觉实现、截图核验,可复用长线会话)
+- 内置开箱工具:`subagent_agy_ui`(前端/UI 设计、样式研究、视觉实现、截图核验,可复用长线会话)+ `list_agy_models`(查询 AGY 当前支持的模型 id,供 `subagent_agy_ui` 的 `model` 参数动态指定)
 - 复杂大任务可拆分为多个独立子任务并行调度,再汇总整合
 
 ### 2. 文本模型图片输入(全局,零配置)
@@ -131,9 +131,10 @@ npm install -g @antigravity/cli
 ```
 ### 子代理委派给 AGY
 
-**无需配置**——插件启动时自动挂载官方 `@deepseek-ai/dsh-tool-subagent` 注册工具(全局可见,所有会话/预设生效):
+**无需配置**——插件启动时自动注册工具(全局可见,所有会话/预设生效):
 
-- `subagent_agy_ui`(continuable,可复用长线会话):前端/UI 设计、样式研究、视觉实现、截图核验
+- `subagent_agy_ui`(continuable,可复用长线会话):前端/UI 设计、样式研究、视觉实现、截图核验;接受可选 `model` 参数,主代理可动态指定模型 id(不传则用插件默认模型)
+- `list_agy_models`:从 `agy models` 实时解析当前支持的模型 id 列表,委派前先查询再传准确 id
 
 由 AGY/Gemini 驱动(`agentOptions.provider: agy`),独立于主代理的模型。如不需要,可在插件配置里设 `registerSubagentTools: false` 关闭。看图不委派子代理——粘贴图片由 AGY 就地读图。
 

@@ -99,6 +99,10 @@ export function registerSubagentTool(ctx: Context, options: SubagentToolOptions)
         type: 'boolean',
         description: 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.',
       },
+      model: {
+        type: 'string',
+        description: 'Optional model ID for the subagent. Query the model list tool (e.g. list_agy_models) for the currently supported ids and pass an exact one; omit to use the plugin-configured default model.',
+      },
     },
     output: {
       schema: {
@@ -139,7 +143,9 @@ export function registerSubagentTool(ctx: Context, options: SubagentToolOptions)
         label: args.description,
         prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
         parent,
-        agentOptions,
+        agentOptions: args.model !== undefined && args.model.length > 0
+          ? { ...agentOptions, model: args.model }
+          : agentOptions,
       }
       if (args.run_in_background !== false) {
         const started = await ctx.subagents.startContinuable({
@@ -162,6 +168,6 @@ export function registerSubagentTool(ctx: Context, options: SubagentToolOptions)
     order: SECTION_ORDER,
     text: context => ctx.tools.get(toolName, context.scope) === undefined
       ? ''
-      : `Use ${toolName} in the background by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when your next action depends on that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
+      : `Use ${toolName} in the background by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when your next action depends on that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message. To use a non-default model, first query the model list tool for a supported id and pass that exact id in the \`model\` argument.`,
   })
 }

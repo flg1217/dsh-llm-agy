@@ -73,7 +73,8 @@ export class AgyLlmAdapter extends LlmAdapter {
 
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const command = this.options.command
-    const model = this.options.model
+    // 请求级 model 优先(子代理可经 agentOptions.model 动态指定),回退到配置值。
+    const model = options.model ?? this.options.model
     const effort = this.options.effort
     const maxAttempts = this.options.maxAttempts ?? 5
     const retryDelayMs = this.options.retryDelayMs ?? 15_000
