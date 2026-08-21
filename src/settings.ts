@@ -1,7 +1,7 @@
 /**
- * AGY 设置区与命令:
+ * AGY 设置区:
  * - installSettingsSection 注册 `agy` namespace,设置面板自动出现 AntiGravity 配置表单。
- * - /agy 命令:status(检测安装/登录)、test(发起回复 hi 的测试)、help。
+ * - 模型探测通道:客户端面板按钮走 api.llm.discoverModels(状态/测试)。
  * @module llm-agy/settings
  */
 
@@ -19,7 +19,7 @@ export const AgySettingsConfig = z.object({
   command: z.string().default('agy').description('agy 可执行文件命令(默认 agy)'),
   model: z.string().default('gemini-3.7-flash-high').description('传给 --model 的 AGY 模型'),
   effort: z.string().default('high').description('推理强度 low/medium/high'),
-  proxy: z.string().default('http://127.0.0.1:7890').description('AGY 流量代理(空字符串禁用)'),
+  proxy: z.string().default('').description('AGY 流量代理(留空不设,例如 http://127.0.0.1:7890;运行时未设置时回落到该地址)'),
   /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
   delegationGuide: z.boolean().default(true).description('注入子代理委派提示词'),
   /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
@@ -87,21 +87,7 @@ export function agyTest(command: string, proxy: string): Promise<{ ok: boolean; 
   })
 }
 
-/** 官方安装命令(供复制)。 */
-export const INSTALL_COMMANDS = [
-  'winget install --id Google.Antigravity',
-  '# 或 macOS / Linux:',
-  'brew install --cask antigravity',
-]
-
-/** 工具说明列表。 */
-export const TOOL_DESCRIPTIONS = [
-  { name: 'subagent_agy_ui', desc: '前端/UI 设计、样式研究、视觉实现、截图核验(continuable 可复用长线会话)' },
-
-  { name: 'web_search(agy provider)', desc: 'web_search 工具走 AGY 的 Google 搜索(search_web),返回完整深度搜索内容' },
-]
-
-/** 注册设置区、命令与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
+/** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
 export function registerAgySettings(ctx: Context): void {
   let current: () => Record<string, unknown> = () => ({})
   installSettingsSection(ctx, AGY_SETTINGS_NAMESPACE, AgySettingsConfig, {}, {
@@ -122,12 +108,27 @@ export function registerAgySettings(ctx: Context): void {
         const command = section.command ?? 'agy'
         const proxy = section.proxy ?? 'http://127.0.0.1:7890'
         const action = request.provider ?? 'status'
+        if (action === 'models') {
+          // 列出 AGY 可用模型:解析 `agy models` 输出(id + 显示名两列)。
+          const r = spawnSync(command, ['models'], { encoding: 'utf8', timeout: 15_000, windowsHide: true })
+          const text = `${r.stdout ?? ''}\n${r.stderr ?? ''}`
+          const entries: { id: string; name: string }[] = []
+          for (const line of text.split('\n')) {
+            const trimmed = line.trim()
+            if (trimmed === '' || trimmed.startsWith('Fetching')) continue
+            const m = trimmed.match(/^(\S+)\s+(.+)$/)
+            if (m !== null) entries.push({ id: m[1], name: `${m[1]}  ${m[2]}` })
+          }
+          // 解析失败/无结果时回落到当前默认,避免弹窗空白
+          if (entries.length === 0) entries.push({ id: section.model, name: section.model })
+          return entries
+        }
         if (action === 'test') {
           const { ok, output } = await agyTest(command, proxy)
           return [{
             id: 'agy-test',
-            // 展示 AGY 的真实回复内容(而非固定 hi)。
-            name: ok ? output.slice(0, 300) : `✗ AGY 测试失败:${output.slice(0, 300)}`,
+            // 展示 AGY 的真实回复内容(而非固定 hi);name 必须非空(客户端网关 min(1) 校验)。
+            name: ok ? (output.slice(0, 300) || '(空回复)') : `✗ AGY 测试失败:${output.slice(0, 300)}`,
           }]
         }
         const installed = agyInstalled(command)
@@ -137,37 +138,5 @@ export function registerAgySettings(ctx: Context): void {
           name: `AGY 安装:${installed ? '✓ 已安装' : '✗ 未安装'} | 登录状态:${installed ? (loggedIn ? '✓ 已登录' : '✗ 未登录') : '-'} | 命令:${command}`,
         }]
       })
-  }
-
-  const commands = ctx.get('commands')
-  if (commands !== undefined) {
-    commands.register({
-      name: 'agy',
-      description: 'AntiGravity(AGY)状态检测 / 测试 / 帮助。用法:/agy status|test|help',
-      handler: async (invocation: { rawInput: string }) => {
-        const input = invocation.rawInput.trim().toLowerCase()
-        const section = sectionOf()
-        const command = section.command ?? 'agy'
-        const proxy = section.proxy ?? 'http://127.0.0.1:7890'
-        if (input === 'status') {
-          const installed = agyInstalled(command)
-          const loggedIn = installed && agyLoggedIn()
-          return {
-            kind: 'success',
-            text: `AGY 安装:${installed ? '✓ 已安装' : '✗ 未安装'}\n登录状态:${installed ? (loggedIn ? '✓ 已登录' : '✗ 未登录') : '-'}\n命令:${command}`,
-          }
-        }
-        if (input === 'test') {
-          const { ok, output } = await agyTest(command, proxy)
-          return ok
-            ? { kind: 'success', text: `AGY 回复:${output.slice(0, 300)}` }
-            : { kind: 'error', text: `AGY 测试失败:${output.slice(0, 300)}` }
-        }
-        return {
-          kind: 'success',
-          text: `AntiGravity(AGY)接入 dsh\n- /agy status 检测安装与登录\n- /agy test 发起测试指令(回复 hi)\n安装:${INSTALL_COMMANDS[0]}\n工具:subagent_agy_ui / web_search(agy);粘贴图片由 AGY 读图`,
-        }
-      },
-    })
   }
 }

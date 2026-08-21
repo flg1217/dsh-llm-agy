@@ -1,7 +1,7 @@
 /**
- * AGY 设置区与命令:
+ * AGY 设置区:
  * - installSettingsSection 注册 `agy` namespace,设置面板自动出现 AntiGravity 配置表单。
- * - /agy 命令:status(检测安装/登录)、test(发起回复 hi 的测试)、help。
+ * - 模型探测通道:客户端面板按钮走 api.llm.discoverModels(状态/测试)。
  * @module llm-agy/settings
  */
 import type { Context } from '@deepseek-ai/cordis';
@@ -42,12 +42,5 @@ export declare function agyTest(command: string, proxy: string): Promise<{
     ok: boolean;
     output: string;
 }>;
-/** 官方安装命令(供复制)。 */
-export declare const INSTALL_COMMANDS: string[];
-/** 工具说明列表。 */
-export declare const TOOL_DESCRIPTIONS: {
-    name: string;
-    desc: string;
-}[];
-/** 注册设置区、命令与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
+/** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
 export declare function registerAgySettings(ctx: Context): void;
