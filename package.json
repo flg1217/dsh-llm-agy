@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-llm-agy",
+  "name": "@flg1217/dsh-llm-agy",
   "version": "0.1.0",
   "description": "AGY (Antigravity CLI) integration for dsh: LLM adapter (subagents), web search provider (Google via search_web), and a plugin-settings card with install/login status checks, live connectivity test, multi-OS install commands, and tool reference. Hot-pluggable — mounted via profile bundle patch, no dsh source changes.",
   "type": "module",
@@ -53,7 +53,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "~18.3.1",
     "typescript": "~5.7.2",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.5"
   },
   "files": [
     "lib",
@@ -67,6 +67,7 @@
   },
   "keywords": [
     "dsh",
+    "dsh-plugin",
     "deepseek-harness",
     "antigravity",
     "agy",

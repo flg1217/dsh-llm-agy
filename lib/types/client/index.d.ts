@@ -4,7 +4,7 @@
 // 检测/测试走 api.llm.discoverModels({settingsNs:'agy', provider:'status'|'test'}),
 // 服务端直接 spawn agy CLI,不落会话。
 window.__ModuleLoader__.load({
-  id: '@dsh-external/dsh-llm-agy',
+  id: '@flg1217/dsh-llm-agy',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports
@@ -41,10 +41,10 @@ window.__ModuleLoader__.load({
       row: '.dshAgy_row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0}',
     }
     const cssText = Object.values(CSS).join('')
-    const tagId = '@dsh-external/llm-agy/plugin-card.css'
+    const tagId = '@flg1217/llm-agy/plugin-card.css'
     if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css=${JSON.stringify(tagId)}]`) === null) {
       const tag = document.createElement('style')
-      tag.dataset.plugin = '@dsh-external/llm-agy'
+      tag.dataset.plugin = '@flg1217/llm-agy'
       tag.dataset.pluginCss = tagId
       tag.textContent = cssText
       document.head.appendChild(tag)

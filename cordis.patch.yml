@@ -1,4 +1,4 @@
-# @dsh-external/dsh-llm-agy bundle patch: inserts the dual-face plugin row into
+# @flg1217/dsh-llm-agy bundle patch: inserts the dual-face plugin row into
 # the web profile roster. Applied as a profile bundle layer (the
 # `dsh.bundle.patch` manifest field) over dsh-base; activate with
 # `dsh plugin --profile <name> add link:...` or npm install.
@@ -9,7 +9,7 @@
 # (exports "./client", served at /plugins/<id>/client.js) load in the web GUI.
 - insert:
     - id: llm-agy
-      name: '@dsh-external/dsh-llm-agy'
+      name: '@flg1217/dsh-llm-agy'
       config:
         command: agy
         model: gemini-3.7-flash-high

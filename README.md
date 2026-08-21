@@ -61,9 +61,10 @@
 
 ### 系统要求
 
-- dsh(web profile,npx 版或源码版均可)
+- dsh(web profile,npx 版或源码版均可);兼容 dsh `>= 0.1.0-rc.6`
 - Node.js ≥ 20
 - AGY CLI(见下方安装命令)
+- 兼容性验证日期:2026-08-21(验证于 dsh rc.8)
 
 ### 安装插件
 
@@ -76,6 +77,17 @@ dsh plugin --profile web add <dsh-llm-agy 目录>
 ```
 
 安装完成后**重启 dsh web**,进入 **设置 → 插件** 应能看到 **AntiGravity** 卡片;展开卡片,点击"检测安装/登录"确认环境就绪。
+
+### 卸载插件
+
+```bash
+dsh plugin --profile web remove @flg1217/dsh-llm-agy
+```
+
+如残留,手工清理:移除 profile(`~/.dsh/profiles/web`)的 `cordis.patch.yml` 中
+`dsh-llm-agy` 的 `- insert` 块,以及 `package.json` dependencies 中对应的
+`@flg1217/dsh-llm-agy` 行。卸载后重启 dsh web 即完全移除
+(AGY CLI 本身不受影响)。
 
 ### 安装 AGY(Antigravity CLI)
 
