@@ -38,6 +38,8 @@ export interface AgyLine {
     finalText?: string;
     /** result 事件 status=ERROR 时的执行错误。 */
     resultError?: string;
+    /** result 事件已收到(result 即 AGY 的终局事件,之后只有收尾噪音)。 */
+    final?: boolean;
 }
 /** AGY result 事件。 */
 export interface AgyResult {

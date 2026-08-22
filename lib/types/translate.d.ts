@@ -32,6 +32,8 @@ export declare class AgyTranslator {
     private _lastInputTokens;
     /** result.response 的完整最终文本(无 U+FFFD 截断损坏),end() 时覆盖流式拼接。 */
     private _finalText;
+    /** 已收到 result 终局事件。 */
+    private _final;
     /** 最近执行步骤(工具名+参数摘要+结果),供反馈块呈现异常发生的位置。 */
     readonly recentSteps: {
         toolName: string;
@@ -48,6 +50,7 @@ export declare class AgyTranslator {
         chunks: StreamChunk[];
         step?: AgyStep;
         conversationId?: string;
+        final?: boolean;
     };
     /** 冲刷解码器残余字节(AGY 最后一段文本的尾字符可能被截断)。 */
     flush(): StreamChunk[];

@@ -82,12 +82,16 @@ export function parseAgyLine(line: string): AgyLine | undefined {
     // 不直接输出为 delta,避免与已流式输出的内容重复。
     if (evt.event === 'result') {
       const r = evt.result
+      // result 即 AGY 的终局事件(成功或失败),之后 AGY 只输出收尾噪音
+      // (如流断开时的 "The stream was interrupted" 提示)——调用方应
+      // 收到 result 后停止读取,不要再解析后续行。
       if (r?.status === 'SUCCESS') {
         const response = r.response
-        if (typeof response === 'string' && response.length > 0) return { finalText: response }
-        return {}
+        if (typeof response === 'string' && response.length > 0) return { finalText: response, final: true }
+        return { final: true }
       }
       return {
+        final: true,
         ...typeof r?.error === 'string' && r.error.length > 0 ? { resultError: r.error } : {},
       }
     }
@@ -111,6 +115,8 @@ export class AgyTranslator {
   private _lastInputTokens = 0
   /** result.response 的完整最终文本(无 U+FFFD 截断损坏),end() 时覆盖流式拼接。 */
   private _finalText: string | undefined
+  /** 已收到 result 终局事件。 */
+  private _final = false
   /** 最近执行步骤(工具名+参数摘要+结果),供反馈块呈现异常发生的位置。 */
   readonly recentSteps: { toolName: string; args: string; status: string; message?: string }[] = []
   // 流式 UTF-8 还原:AGY 输出按字节切分,且经 latin1 读取保留原始字节;
@@ -121,12 +127,13 @@ export class AgyTranslator {
    * 处理一行 AGY 输出。
    * @returns 本行产生的 StreamChunk(文本流,实时)与工具步骤(由调用方落地为会话事件)。
    */
-  push(line: string): { chunks: StreamChunk[]; step?: AgyStep; conversationId?: string } {
+  push(line: string): { chunks: StreamChunk[]; step?: AgyStep; conversationId?: string; final?: boolean } {
     const chunks: StreamChunk[] = []
     const parsed = parseAgyLine(line)
     if (parsed === undefined) return { chunks }
 
     if (parsed.conversationId !== undefined) return { chunks, conversationId: parsed.conversationId }
+    if (parsed.final === true) this._final = true
 
     if (parsed.usage !== undefined) {
       // AGY 分步报告 usage:input/output/thinking 是增量(累计),
@@ -141,7 +148,10 @@ export class AgyTranslator {
       // 最后一步的 input_tokens(单次请求大小,用于判断"是否真要超限")。
       this._lastInputTokens = m.inputTokens
     }
-    if (parsed.resultError !== undefined) this._resultError = parsed.resultError
+    // 任务已成功(finalText 已缓存)后,AGY 收尾可能再发一个 result 错误
+    // (如 "The stream was interrupted. Please continue the task you were
+    // working on.")——那是会话收尾提示,不是任务失败,忽略之。
+    if (parsed.resultError !== undefined && this._finalText === undefined) this._resultError = parsed.resultError
     if (parsed.finalText !== undefined) {
       // result.response 与 text_delta 一样经 latin1 读取,字节需还原为 UTF-8。
       this._finalText = Buffer.from(parsed.finalText, 'latin1').toString('utf8')
@@ -170,7 +180,11 @@ export class AgyTranslator {
       }
     }
 
-    return { chunks, ...parsed.step !== undefined ? { step: parsed.step } : {} }
+    return {
+      chunks,
+      ...parsed.step !== undefined ? { step: parsed.step } : {},
+      ...this._final ? { final: true } : {},
+    }
   }
   /** 冲刷解码器残余字节(AGY 最后一段文本的尾字符可能被截断)。 */
   flush(): StreamChunk[] {

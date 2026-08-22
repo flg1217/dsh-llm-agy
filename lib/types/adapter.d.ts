@@ -31,6 +31,15 @@ export declare class AgyLlmAdapter extends LlmAdapter {
     private readonly ctx;
     private readonly options;
     constructor(ctx: Context, options: AgyAdapterOptions);
+    /**
+     * 绑定模型元数据与分发流入口(rc.2+ 的 LlmAdapter 接口)。
+     * 显式实现而非依赖基类:插件对宿主 dsh-llm 版本保持兼容
+     * (rc.6 宿主不调用此方法;rc.2+ 宿主调用本实现)。
+     */
+    prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<{
+        model: LlmResolvedModelInfo;
+        stream: (options: GenerateOptions) => AsyncIterable<StreamChunk>;
+    }>;
     stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
-    resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo>;
+    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;
 }
