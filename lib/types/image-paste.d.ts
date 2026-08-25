@@ -24,10 +24,10 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Message } from '@deepseek-ai/dsh-llm';
 /**
- * 转换请求消息:把**所有**用户消息里的 ImageBlock 都转换为描述文本——
- * 文本模型(如 deepseek-v4-flash)的流式适配器会在序列化时硬拒裸图片块
- * (`pi-ai model "X" does not support image input`),所以历史里的图片块也必须
- * 转走,不能原样透传。
+ * 转换请求消息:把**所有**消息内容里的 ImageBlock(含 tool-result 嵌套)都
+ * 转换为描述文本——文本模型(如 deepseek-v4-flash)的流式适配器会在序列化
+ * 时硬拒裸图片块(`pi-ai model "X" does not support image input`),所以历史
+ * 里的图片块也必须转走,不能原样透传。
  *
  * - 所有图片块(最新输入与历史)统一使用同一描述模板(带 AGY 描述);
  * - 转换是**确定性**的:同一附件永远映射到同一描述文本(内容寻址缓存),
