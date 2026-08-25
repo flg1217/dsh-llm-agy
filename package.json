@@ -51,10 +51,11 @@
     "@types/react": "~18.3.1",
     "typescript": "~5.7.2",
     "vitest": "^3.0.5",
-    "@deepseek-ai/dsh-llm": "link:D:/Projects/DeepseekHarness/repo/packages/llm/llm",
-    "@deepseek-ai/dsh-settings": "link:D:/Projects/DeepseekHarness/repo/packages/settings/settings",
-    "@deepseek-ai/dsh-tools": "link:D:/Projects/DeepseekHarness/repo/packages/core/tools",
-    "@deepseek-ai/dsh-subagent": "link:D:/Projects/DeepseekHarness/repo/packages/subagent/subagent"
+    "@deepseek-ai/dsh-llm": "link:H:/Projects/DeepseekHarness/deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-settings": "link:H:/Projects/DeepseekHarness/deepseek-harness/packages/settings/settings",
+    "@deepseek-ai/dsh-tools": "link:H:/Projects/DeepseekHarness/deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-subagent": "link:H:/Projects/DeepseekHarness/deepseek-harness/packages/subagent/subagent",
+    "@deepseek-ai/dsh-web": "link:H:/Projects/DeepseekHarness/deepseek-harness/packages/web/web"
   },
   "files": [
     "lib",

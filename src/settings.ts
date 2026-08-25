@@ -24,12 +24,20 @@ export const AgySettingsConfig = z.object({
   delegationGuide: z.boolean().default(true).description('注入子代理委派提示词'),
   /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
   readImageAgy: z.boolean().default(true).description('使用 AGY 读取粘贴的图片'),
+  /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
+  searchOverride: z.boolean().default(true).description('用 AGY 搜索接管全局 web_search 工具'),
 })
 
 /** 读取 readImageAgy 开关(默认开启)。 */
 export function readImageAgyEnabled(ctx: Context): boolean {
   const settings = ctx.get('settings') as { get?: (ns: string) => { readImageAgy?: boolean } | undefined } | undefined
   return settings?.get?.('agy')?.readImageAgy ?? true
+}
+
+/** 读取 searchOverride 开关(默认开启):开 = 注册进全局 web 搜索缝,关 = 仅独立 agy_web_search 工具。 */
+export function searchOverrideEnabled(ctx: Context): boolean {
+  const settings = ctx.get('settings') as { get?: (ns: string) => { searchOverride?: boolean } | undefined } | undefined
+  return settings?.get?.('agy')?.searchOverride ?? true
 }
 
 /** 检测 AGY 是否已安装(命令存在)。 */

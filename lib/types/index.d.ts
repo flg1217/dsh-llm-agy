@@ -18,8 +18,6 @@ export interface Config {
     extraArgs?: string[];
     /** AGY 资格检查/API 流量代理,默认 `http://127.0.0.1:7890`;空字符串禁用。 */
     proxy?: string;
-    /** 注册为 dsh web 搜索 provider 的 id,默认 `agy`;空字符串禁用搜索接入。 */
-    searchProviderId?: string;
     /** 是否注册 `subagent_agy_ui` 子代理工具(默认开启)。 */
     registerSubagentTools?: boolean;
 }
