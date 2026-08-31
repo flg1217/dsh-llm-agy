@@ -1,3 +1,5 @@
+
+
 # dsh-llm-agy
 
 > **AGY(Antigravity CLI)— DeepSeek Harness 的智能体增强引擎**
@@ -14,7 +16,7 @@
 | --- | --- |
 | **独立推理子代理** | 将前端/UI 等任务委派给 AGY 驱动的子代理(Gemini 3.7 Flash High),与主代理并行,长线会话可复用 |
 | **深度网页搜索** | `web_search` 工具经由 AGY 的 Google 搜索通道完成**完整深度检索**——搜索、打开来源、阅读全文、综合成文,而非简单链接列表 |
-| **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端由 AGY 就地读图,把图片转为文字描述进入消息。全程无感,不新增模型路由、不切换模型、不写磁盘 |
+| **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端由 AGY 就地读图,把图片转为文字描述进入消息。全程无感,不新增模型路由、不切换模型、仅临时落盘到工作区 |
 | **连通性诊断面板** | dsh 设置 → 插件内的 AntiGravity 卡片:检测本机安装与登录状态、发起真实连通性测试、一键复制各平台安装命令 |
 
 插件严格遵循 dsh 官方扩展机制(profile bundle patch / `registerModelDiscovery` / `registerSearchProvider` / `llm/stream` waterfall / 客户端 slot),**不修改 dsh 任何源码**,可随 dsh 平滑升级。
