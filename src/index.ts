@@ -10,6 +10,8 @@ import { AgyLlmAdapter } from './adapter.js'
 import { AgySearchProvider } from './search.js'
 import type {} from '@deepseek-ai/dsh-settings'
 import { readImageAgyEnabled, registerAgySettings } from './settings.js'
+import { registerAgySearchTool } from './search-tool.js'
+import { readImageAgyEnabled, registerAgySettings, searchOverrideEnabled } from './settings.js'
 import { installImageRelay } from './image-paste.js'
 import { registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
@@ -104,11 +106,35 @@ export function apply(ctx: Context, config: Config): void {
   if (config.registerSubagentTools !== false) {
     registerSubagentTools(ctx, agyOptions.model, agyOptions.command)
   }
-  // AGY 深度搜索工具(独立命名,不接入 ctx.web 搜索框架):不设工具级
-  // 超时预算,由 AGY 执行器控制空闲超时(3 分钟无输出判卡死,不设总时长);
-  // 不受系统 web_search 的 60s 限制。附系统提示引导模型网络调研用它。
-  // 设置面板的 command/proxy 等改动经 agyOptions getter 即时生效。
-  registerSearchWebAgy(ctx, () => new AgySearchProvider(agyOptions))
+  // AGY 搜索接入(searchOverride 开关热切换):
+  // - 开:注册进全局 web 搜索缝(ctx.web),全局 web_search 工具走 AGY;
+  // - 关:不占全局缝(避免与其它 provider 冲突),只注册独立 agy_web_search 工具。
+  const searchOptions = () => ({
+    command: config.command ?? 'agy',
+    model: config.model ?? 'gemini-3.7-flash-high',
+    effort: config.effort ?? 'high',
+    proxy: config.proxy,
+  })
+  const searchDisposers = new Set<() => void>()
+  const syncSearch = () => {
+    for (const dispose of searchDisposers) {
+      try { dispose() } catch { /* 注销失败不阻断 */ }
+    }
+    searchDisposers.clear()
+    if (searchOverrideEnabled(ctx)) {
+      if (ctx.web !== undefined) {
+        try {
+          searchDisposers.add(ctx.web.registerSearchProvider(new AgySearchProvider(searchOptions())))
+        } catch { /* 注册冲突等异常不阻断 */ }
+      }
+    } else {
+      const dispose = registerAgySearchTool(ctx, searchOptions())
+      if (dispose !== undefined) searchDisposers.add(dispose)
+    }
+  }
+  syncSearch()
+  // 设置面板 AntiGravity 配置区 + /agy 命令(status/test/help)。
+  registerAgySettings(ctx)
   // 注:read_image 覆盖由 router-agy 预设的 read-image-override.mjs
   // (agent 作用域同名注册 shadow 全局)实现,受 agy namespace 的
   // overrideReadImage 开关控制;此处无需注册。
@@ -157,7 +183,10 @@ export function apply(ctx: Context, config: Config): void {
   }
   syncImageServices()
   ctx.on('settings/updated', (ns: string) => {
-    if (ns === 'agy') syncImageServices()
+    if (ns === 'agy') {
+      syncSearch()
+      syncImageServices()
+    }
   })
   // 全局子代理委派提示(section),受 agy namespace 的 delegationGuide 开关控制。
   installDelegationGuide(ctx)

@@ -56,7 +56,8 @@
     "@deepseek-ai/dsh-tools": "link:D:/Projects/DeepseekHarness/repo/packages/core/tools",
     "@deepseek-ai/dsh-subagent": "link:D:/Projects/DeepseekHarness/repo/packages/subagent/subagent",
     "@deepseek-ai/dsh-util-values": "link:D:/Projects/DeepseekHarness/repo/packages/util/values",
-    "@deepseek-ai/dsh-session": "link:D:/Projects/DeepseekHarness/repo/packages/core/session"
+    "@deepseek-ai/dsh-session": "link:D:/Projects/DeepseekHarness/repo/packages/core/session",
+    "@deepseek-ai/dsh-web": "link:D:/Projects/DeepseekHarness/repo/packages/web/web"
   },
   "files": [
     "lib",
