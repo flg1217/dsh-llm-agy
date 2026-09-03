@@ -6,7 +6,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-export declare const AGY_SETTINGS_NAMESPACE: never;
+export declare const AGY_SETTINGS_NAMESPACE = "agy";
 /** AGY 设置表单 schema(schemastery Schema;settings.register 会把 schema 当函数调用)。 */
 export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
     command: z<string, string>;
@@ -43,4 +43,4 @@ export declare function agyTest(command: string, proxy: string): Promise<{
     output: string;
 }>;
 /** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
-export declare function registerAgySettings(ctx: Context): Promise<() => Record<string, string>>;
+export declare function registerAgySettings(ctx: Context): () => Record<string, string>;
