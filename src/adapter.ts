@@ -12,6 +12,7 @@ import { once } from 'node:events'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import { buildPrompt } from './serialize.js'
 import { AgyTranslator, agyCallId } from './translate.js'
 
@@ -169,10 +170,10 @@ export class AgyLlmAdapter extends LlmAdapter {
 
         // 工具步骤落地为会话事件所需的 turn/step(从子代理会话推断)。
         const session = options.sessionId !== undefined ? this.ctx.get('sessions')?.get(options.sessionId) : undefined
-        const events = session?.events ?? []
+        const events = session?.ownEvents?.() ?? []
         const turn = ([...events].reverse().find(e => e.type === 'turn/start')?.data.turn ?? 1) as number
         const step = ([...events].reverse().find(e => e.type === 'step/start')?.data.step ?? 1) as number
-        const toolCallSeq = new Map<number, number>() // step_index → tool/call seq
+        const toolCallSeq = new Map<number, SessionSeq>() // step_index → tool/call seq
 
         const translator = new AgyTranslator()
         let hasOutput = false

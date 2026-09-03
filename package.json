@@ -44,7 +44,7 @@
     "@deepseek-ai/schemastery": "^3.0.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis": "link:D:/Projects/DeepseekHarness/repo/vendor/cordis",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@types/node": "^22.0.0",
@@ -54,7 +54,9 @@
     "@deepseek-ai/dsh-llm": "link:D:/Projects/DeepseekHarness/repo/packages/llm/llm",
     "@deepseek-ai/dsh-settings": "link:D:/Projects/DeepseekHarness/repo/packages/settings/settings",
     "@deepseek-ai/dsh-tools": "link:D:/Projects/DeepseekHarness/repo/packages/core/tools",
-    "@deepseek-ai/dsh-subagent": "link:D:/Projects/DeepseekHarness/repo/packages/subagent/subagent"
+    "@deepseek-ai/dsh-subagent": "link:D:/Projects/DeepseekHarness/repo/packages/subagent/subagent",
+    "@deepseek-ai/dsh-util-values": "link:D:/Projects/DeepseekHarness/repo/packages/util/values",
+    "@deepseek-ai/dsh-session": "link:D:/Projects/DeepseekHarness/repo/packages/core/session"
   },
   "files": [
     "lib",

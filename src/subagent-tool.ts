@@ -8,7 +8,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 

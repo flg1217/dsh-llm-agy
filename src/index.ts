@@ -76,7 +76,10 @@ function registerSubagentTools(ctx: Context, model: string, command: string): vo
 
 export function apply(ctx: Context, config: Config): void {
   // 设置面板先注册:后面 adapter / 搜索 / 看图都从它读,面板改动即时生效。
-  const readSettings = registerAgySettings(ctx)
+  // 设置注册异步完成;完成前读取器返回空(回退 config)。TODO(专门轮):新协议。
+  let settingsReader: () => Record<string, string> = () => ({})
+  void registerAgySettings(ctx).then(reader => { settingsReader = reader })
+  const readSettings = (): Record<string, string> => settingsReader()
   /**
    * AGY 调用参数:优先设置面板 → 回退插件 config → 内建默认。
    *

@@ -7,7 +7,7 @@
  * @module llm-agy/translate
  */
 
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { AgyEvent, AgyLine, AgyStep, AgyUsage } from './types.js'
 
@@ -274,6 +274,6 @@ export class AgyTranslator {
  * AGY 会话后 step_index 会重复出现,不加 attempt 会产生重复 callId,
  * 导致会话轨迹构建报 "more than one start Match"。
  */
-export function agyCallId(toolName: string, stepIndex: number | undefined, attempt = 1): CallId {
-  return CallId(`agy-${attempt}-${toolName}-${stepIndex ?? Math.random()}`)
+export function agyCallId(toolName: string, stepIndex: number | undefined, attempt = 1): ToolCallId {
+  return ToolCallId(`agy-${attempt}-${toolName}-${stepIndex ?? Math.random()}`)
 }
