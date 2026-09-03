@@ -122,6 +122,7 @@ export function registerAgySettings(ctx: Context): () => Record<string, string> 
   // 全程不落会话、不动源码。
   const llm = ctx.get('llm')
   if (llm !== undefined && typeof (llm as { registerModelDiscovery?: unknown }).registerModelDiscovery === 'function') {
+    try {
     (llm as { registerModelDiscovery: (ns: string, fn: (request: { provider?: string }) => Promise<readonly { id: string; name?: string }[]>) => void })
       .registerModelDiscovery(AGY_SETTINGS_NAMESPACE, async (request: { provider?: string }) => {
         const section = sectionOf()
@@ -158,6 +159,11 @@ export function registerAgySettings(ctx: Context): () => Record<string, string> 
           name: `AGY 安装:${installed ? '✓ 已安装' : '✗ 未安装'} | 登录状态:${installed ? (loggedIn ? '✓ 已登录' : '✗ 未登录') : '-'} | 命令:${command}`,
         }]
       })
+    } catch (error) {
+      // llm-agy 可能被多个 ctx(realm)apply;llm 服务对已注册 discovery 抛
+      // DUPLICATE_DISCOVERY,根 ctx 已注册时后续 ctx 跳过即可。
+      if ((error as { code?: string })?.code !== 'DUPLICATE_DISCOVERY') throw error
+    }
   }
   return sectionOf
 }
