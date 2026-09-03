@@ -85,11 +85,20 @@ export function parseAgyLine(line: string): AgyLine | undefined {
       // result 即 AGY 的终局事件(成功或失败),之后 AGY 只输出收尾噪音
       // (如流断开时的 "The stream was interrupted" 提示)——调用方应
       // 收到 result 后停止读取,不要再解析后续行。
-      if (r?.status === 'SUCCESS') {
-        const response = r.response
+      //
+      // AGY 会把"会话流中断"作为 result 的 error 报告(如 "The stream was
+      // interrupted. Please continue the task you were working on.")。这是
+      // 流收尾提示,不是任务失败:任务结果(文本/工具步骤)已通过 step_update
+      // 输出完毕。只要 result 携带成功响应(response),或 error 属于流中断
+      // 收尾提示,都不判定为执行失败。
+      const response = r?.response
+      const interrupted = typeof r?.error === 'string'
+        && /stream was interrupted|continue the task/i.test(r.error)
+      if (r?.status === 'SUCCESS' || (typeof response === 'string' && response.length > 0)) {
         if (typeof response === 'string' && response.length > 0) return { finalText: response, final: true }
         return { final: true }
       }
+      if (interrupted) return { final: true }
       return {
         final: true,
         ...typeof r?.error === 'string' && r.error.length > 0 ? { resultError: r.error } : {},

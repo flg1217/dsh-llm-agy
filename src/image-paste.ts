@@ -85,7 +85,7 @@ async function describeImage(
   let description: string
   try {
     writeFileSync(tmp, stored.data)
-    description = agyReadImage(command, proxy, tmp)
+    description = await agyReadImage(command, proxy, tmp)
   } catch (error) {
     description = `[用户粘贴的图片读取失败:${String(error).slice(0, 200)}]`
   } finally {
@@ -105,10 +105,14 @@ function imageContentText(description: string): string {
 }
 
 /**
- * 转换请求消息:把**所有**用户消息里的 ImageBlock 都转换为描述文本——
+ * 转换请求消息:把**任何角色**消息里的 ImageBlock 都转换为描述文本——
  * 文本模型(如 deepseek-v4-flash)的流式适配器会在序列化时硬拒裸图片块
  * (`pi-ai model "X" does not support image input`),所以历史里的图片块也必须
  * 转走,不能原样透传。
+ *
+ * 角色不限:除了用户粘贴的图片(user 消息),工具结果(tool 消息)同样会
+ * 携带图片块——原生 `read_image` 的返回就是文本信封 + ImageBlock。只转换
+ * user 会让工具读出的图片漏网,并在下一次请求时触发适配器的硬拒。
  *
  * - 所有图片块(最新输入与历史)统一使用同一描述模板(带 AGY 描述);
  * - 转换是**确定性**的:同一附件永远映射到同一描述文本(内容寻址缓存),
@@ -126,7 +130,7 @@ export async function convertPastedImages(
   const transformed: Message[] = []
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i]
-    if (message.role !== 'user' || !message.content.some((b) => b.type === 'image')) {
+    if (!message.content.some((b) => b.type === 'image')) {
       transformed.push(message)
       continue
     }
@@ -149,7 +153,8 @@ export async function convertPastedImages(
 /**
  * 安装图片中继(返回注销函数,关闭开关时可整体移除):
  * 1. 包装 llm.resolveModelInfo,把文本模型声明为支持 image(绕过 api-proxy 拒绝);
- * 2. llm/stream 监听器对声明过的模型,就地读图生成描述文本后接管原 adapter。
+ * 2. llm/stream 监听器(global)把图片就地读成描述文本,再重走 llm.stream,
+ *    使文本模型也能处理含图会话。
  */
 export function installImageRelay(
   ctx: Context,
@@ -157,8 +162,10 @@ export function installImageRelay(
 ): (() => void) | undefined {
   const llm = ctx.get('llm') as {
     resolveModelInfo?: (provider: string, model: string, signal?: AbortSignal) => Promise<LlmResolvedModelInfo>
-    adapters?: Map<string, { adapter?: { stream(options: GenerateOptions): AsyncIterable<StreamChunk> } }>
+    stream?: (options: GenerateOptions) => AsyncIterable<StreamChunk>
   } | undefined
+  if (!llm || typeof llm.stream !== 'function') return undefined
+  const streamRequest = llm.stream.bind(llm)
   if (!llm || typeof llm.resolveModelInfo !== 'function') return undefined
 
   // 1. 包装 resolveModelInfo:文本模型 → 声明 image 能力。
@@ -179,24 +186,46 @@ export function installImageRelay(
   }
   llm.resolveModelInfo = wrapped
 
-  // 2. llm/stream 监听器:仅处理被声明的模型,就地读图后接管调用原 adapter。
+  // 2. llm/stream 监听器:确认模型吃不下图片后,就地读图并改写本次请求。
+  //
+  // `global: true` 是必需的:事件由 llm 服务在它自己的 ctx 上 emit
+  // (`this.ctx.waterfall(this, 'llm/stream', ...)`),插件作用域的普通监听器
+  // 收不到兄弟作用域的事件——不加它,本监听器一次都不会触发(官方
+  // session-title / agent-loop invariant 同样用 global 注册)。
   const off = ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<StreamChunk>) => {
-    // 多模态模型(原生支持 image)始终跳过,包括 compaction 辅助调用;
-    // 文本模型(已声明)正常转换;compaction 且模型未知时转换兜底
-    // (compaction 把含图历史发给文本总结模型会被 UNSUPPORTED_CONTENT 拒绝)。
+    // 多模态模型(原生支持 image)始终跳过,图片原样给模型。
     const key = `${options.provider}:${options.model}`
     if (imageCapable.has(key)) return next()
-    const isCompaction = options.purpose === 'compaction'
-    if (!isCompaction && !imageDeclared.has(key)) return next()
     if (!hasImage(options.messages)) return next()
-    const adapter = llm.adapters?.get(options.provider)?.adapter
-    if (!adapter || typeof adapter.stream !== 'function') return next()
 
     return (async function* (): AsyncGenerator<StreamChunk> {
+      // 路由能力未知时先解析一次,不能只依赖 `imageDeclared` 的惰性填充:
+      // 该集合只在有人调用过 resolveModelInfo 后才会有记录。带着历史图片
+      // 继续对话(不再调用原生 read_image)时它仍是空的,若直接跳过转换,
+      // 裸图片块会被适配器硬拒(`does not support image input`)。
+      if (!imageDeclared.has(key)) {
+        let resolved: LlmResolvedModelInfo | undefined
+        try {
+          resolved = await llm.resolveModelInfo?.(options.provider, options.model)
+        } catch { /* 解析失败按未知处理,走转换兜底 */ }
+        if (resolved?.inputModalities?.includes('image') === true) {
+          imageCapable.add(key)
+          yield* next()
+          return
+        }
+        // 解析出能力清单(不含 image)即记住它是文本模型;解析不出也照常
+        // 转换——对一个会硬拒的适配器,转换永远比放行安全。
+        if (resolved?.inputModalities !== undefined) imageDeclared.add(key)
+      }
+      // options 是只读的(严格模式下赋值会抛错),而 waterfall 的 next() 不
+      // 接受参数,所以只能构造新对象后重走公开的 llm.stream:完整监听链
+      // (重试/检查点/会话标题)照常生效。转换后 messages 已不含图片块,
+      // 重入本监听器时会命中 `hasImage === false` 直接放行,不会递归。
+      const before = options.messages
       const messages = await convertPastedImages(ctx, options.messages, getOptions)
-      yield* adapter.stream({ ...options, messages })
+      yield* streamRequest({ ...options, messages })
     })()
-  })
+  }, { global: true })
 
   return () => {
     // 仅当 resolveModelInfo 仍是本插件包装时才恢复原函数(防御第三方再次包装)。

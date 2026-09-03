@@ -24,10 +24,14 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Message } from '@deepseek-ai/dsh-llm';
 /**
- * 转换请求消息:把**所有**用户消息里的 ImageBlock 都转换为描述文本——
+ * 转换请求消息:把**任何角色**消息里的 ImageBlock 都转换为描述文本——
  * 文本模型(如 deepseek-v4-flash)的流式适配器会在序列化时硬拒裸图片块
  * (`pi-ai model "X" does not support image input`),所以历史里的图片块也必须
  * 转走,不能原样透传。
+ *
+ * 角色不限:除了用户粘贴的图片(user 消息),工具结果(tool 消息)同样会
+ * 携带图片块——原生 `read_image` 的返回就是文本信封 + ImageBlock。只转换
+ * user 会让工具读出的图片漏网,并在下一次请求时触发适配器的硬拒。
  *
  * - 所有图片块(最新输入与历史)统一使用同一描述模板(带 AGY 描述);
  * - 转换是**确定性**的:同一附件永远映射到同一描述文本(内容寻址缓存),
@@ -43,7 +47,8 @@ export declare function convertPastedImages(ctx: Context, messages: readonly Mes
 /**
  * 安装图片中继(返回注销函数,关闭开关时可整体移除):
  * 1. 包装 llm.resolveModelInfo,把文本模型声明为支持 image(绕过 api-proxy 拒绝);
- * 2. llm/stream 监听器对声明过的模型,就地读图生成描述文本后接管原 adapter。
+ * 2. llm/stream 监听器(global)把图片就地读成描述文本,再重走 llm.stream,
+ *    使文本模型也能处理含图会话。
  */
 export declare function installImageRelay(ctx: Context, getOptions: () => {
     command: string;

@@ -13,8 +13,19 @@
  * @module llm-agy/read-image
  */
 import type { Context } from '@deepseek-ai/cordis';
-/** AGY 读图:同步执行,返回描述文本。 */
-export declare function agyReadImage(command: string, proxy: string, filePath: string): string;
+/**
+ * AGY 读图:同步执行,返回描述文本。
+ * @param extra - 调用方对看图方式的额外要求(可选),拼进提示词尾部;
+ *   例如"只提取表格里的数字"、"重点说明布局结构"。省略时为通用详细描述。
+ */
+/**
+ * AGY 读图:执行一次完整 AGY 调用,返回描述文本。
+ * 超时走公共执行器(空闲 3 分钟,不设总时长):读图期间 AGY 持续输出即续命,
+ * 不会被 90 秒固定超时误杀。
+ * @param extra - 调用方对看图方式的额外要求(可选),拼进提示词尾部;
+ *   例如"只提取表格里的数字"、"重点说明布局结构"。省略时为通用详细描述。
+ */
+export declare function agyReadImage(command: string, proxy: string, filePath: string, extra?: string): Promise<string>;
 /** 生成 `read_image_agy` 工具定义(全局常驻,独立命名)。 */
 export declare function agyReadImageAgyTool(ctx: Context, getOptions: () => {
     command: string;

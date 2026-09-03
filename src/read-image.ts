@@ -13,32 +13,36 @@
  * @module llm-agy/read-image
  */
 
-import { spawnSync } from 'node:child_process'
+import { runAgyText } from './agy-run.js'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
-/** AGY 读图:同步执行,返回描述文本。 */
-export function agyReadImage(command: string, proxy: string, filePath: string): string {
-  const prompt = `请查看这张图片并描述你看到的内容:${filePath}。给出准确、详细的中文描述,回答问题时直接依据图片内容。`
-  const r = spawnSync(command, [
-    '-p', prompt,
-    '--output-format', 'text',
-    '--print-timeout', '10m',
-    '--dangerously-skip-permissions',
-  ], {
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: 90_000,
-    env: proxy
-      ? { ...process.env, HTTPS_PROXY: proxy, HTTP_PROXY: proxy, ALL_PROXY: proxy }
-      : { ...process.env },
-  })
-  if (r.error) throw new Error(`AGY 读图失败:${String(r.error)}`)
-  if (r.status !== 0) throw new Error(`AGY 读图失败(exit ${r.status}):${(r.stderr ?? '').slice(0, 200)}`)
-  const text = (r.stdout ?? '').trim()
+/**
+ * AGY 读图:同步执行,返回描述文本。
+ * @param extra - 调用方对看图方式的额外要求(可选),拼进提示词尾部;
+ *   例如"只提取表格里的数字"、"重点说明布局结构"。省略时为通用详细描述。
+ */
+/**
+ * AGY 读图:执行一次完整 AGY 调用,返回描述文本。
+ * 超时走公共执行器(空闲 3 分钟,不设总时长):读图期间 AGY 持续输出即续命,
+ * 不会被 90 秒固定超时误杀。
+ * @param extra - 调用方对看图方式的额外要求(可选),拼进提示词尾部;
+ *   例如"只提取表格里的数字"、"重点说明布局结构"。省略时为通用详细描述。
+ */
+export async function agyReadImage(command: string, proxy: string, filePath: string, extra?: string): Promise<string> {
+  const focus = extra === undefined || extra.trim().length === 0
+    ? ''
+    : `
+
+看图要求:${extra.trim()}`
+  // 无额外要求时保持原有提示词一字不变(中继结果按附件缓存,措辞即内容)。
+  const prompt = focus.length === 0
+    ? `请查看这张图片并描述你看到的内容:${filePath}。给出准确、详细的中文描述,回答问题时直接依据图片内容。`
+    : `请查看这张图片:${filePath}。给出准确、详细的中文描述,回答问题时直接依据图片内容。${focus}`
+  const text = (await runAgyText({ command, prompt, proxy })).trim()
   if (text.length === 0) throw new Error('AGY 读图无输出')
   return text
 }
@@ -85,6 +89,7 @@ async function readImageByAttachment(
   filePath: string,
   command: string,
   proxy: string,
+  extra?: string,
 ): Promise<string | undefined> {
   const ref = attachmentRefFrom(filePath)
   if (ref === undefined) return undefined
@@ -110,7 +115,7 @@ async function readImageByAttachment(
   const tmp = join(dir, `image.${ext}`)
   try {
     writeFileSync(tmp, out.data)
-    return agyReadImage(command, proxy, tmp)
+    return await agyReadImage(command, proxy, tmp, extra)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -124,9 +129,17 @@ export function agyReadImageAgyTool(ctx: Context, getOptions: () => { command: s
       'Read a PNG/JPEG/WebP/GIF file and describe its content (via AGY/Gemini vision). '
       + 'THE recommended tool for analyzing any image (screenshots, mockups, pasted images). '
       + 'Accepts a local file path or an attachment id (e.g. sha256:...) from a pasted image. '
-      + 'Works with any model, including text-only ones. Call this directly; do not delegate image reading to a subagent.',
+      + 'Works with any model, including text-only ones. Call this directly; do not delegate image reading to a subagent. '
+      + 'Pass `prompt` to steer what to look for (e.g. "list every number in the table", "describe only the layout"); '
+      + 'omit it for a full general description.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to the image file, or an attachment id from a pasted image.' },
+      // 可选参数:不加 `required`(该 schema 只允许 `required: true` 标注必填)。
+      prompt: {
+        type: 'string',
+        description: 'Optional extra instruction for how to read the image, e.g. "只提取表格里的数字" / "重点说明布局结构". '
+          + 'Omit for a full general description.',
+      },
     },
     output: {
       schema: {
@@ -145,15 +158,18 @@ export function agyReadImageAgyTool(ctx: Context, getOptions: () => { command: s
         throw new Error('file_path must be a non-empty string')
       }
       const { command, proxy } = getOptions()
+      // 额外看图要求(可选):非空才拼进提示词。
+      const raw = args.prompt
+      const extra = typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined
 
       // 1) 磁盘路径:直接读。
       if (existsSync(filePath)) {
-        const description = agyReadImage(command, proxy, filePath)
+        const description = await agyReadImage(command, proxy, filePath, extra)
         return { path: filePath, description }
       }
 
       // 2) 附件引用(粘贴图片):attachment 服务读字节 → 临时文件 → AGY 读图。
-      const byAttachment = await readImageByAttachment(ctx, filePath, command, proxy)
+      const byAttachment = await readImageByAttachment(ctx, filePath, command, proxy, extra)
       if (byAttachment !== undefined) {
         return { path: filePath, description: byAttachment }
       }

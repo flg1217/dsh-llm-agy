@@ -76,7 +76,7 @@ window.__ModuleLoader__.load({
     ]
     const TOOLS = [
       { name: 'subagent_agy_ui', desc: '前端/UI 设计、样式、视觉实现、截图核验(continuable 可复用长线会话)' },
-      { name: 'web_search', desc: 'web_search 走 AGY 的 Google 搜索(search_web),深度搜索返回完整内容' },
+      { name: 'search_web_agy', desc: 'AGY 深度网络搜索:自动搜索、阅读全文、综合引用回答,无短超时限制' },
     ]
 
     /** 安装命令行:label + code + 复制按钮(带已复制状态)。 */

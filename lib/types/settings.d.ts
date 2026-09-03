@@ -43,4 +43,4 @@ export declare function agyTest(command: string, proxy: string): Promise<{
     output: string;
 }>;
 /** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
-export declare function registerAgySettings(ctx: Context): void;
+export declare function registerAgySettings(ctx: Context): () => Record<string, string>;

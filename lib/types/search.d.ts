@@ -1,8 +1,8 @@
 /**
- * AGY 搜索 provider:把 AGY 的 search_web 工具接入 dsh 的 ctx.web 搜索框架。
- * 对齐 dsh-web-search-deepseek/provider 的结构:
+ * AGY 搜索 provider:`search_web_agy` 工具的执行后端。
+ *
  * - available() 只做本地可用性检查(不联网);
- * - search() spawn AGY 执行一次搜索,解析 result.response 提取 sources。
+ * - search() 经公共执行器跑一次 AGY 深度调研,解析 result.response 提取 sources。
  *
  * 限制(实测):
  * - AGY 的 search_web 不通过 stream-json 暴露结构化结果(tool_info.output 为空),
@@ -18,6 +18,14 @@ export interface AgySearchOptions {
     model: string;
     effort: string;
     proxy?: string;
+    /**
+     * 超时预算(可选)。生产用执行器默认(空闲 3 分钟 / 总 15 分钟);
+     * 测试注入小值以便压缩时间。
+     */
+    timeouts?: {
+        idleMs?: number;
+        totalMs?: number;
+    };
 }
 /**
  * 一个 AGY 搜索 provider。
@@ -31,6 +39,4 @@ export declare class AgySearchProvider implements WebSearchProvider {
     available(): boolean;
     /** 执行一次 AGY 搜索。 */
     search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>;
-    /** 跑一次 AGY print 调用,返回 result.response 原文(latin1 还原),失败返回 undefined。 */
-    private runAgy;
 }

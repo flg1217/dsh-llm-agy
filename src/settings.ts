@@ -19,7 +19,7 @@ export const AgySettingsConfig = z.object({
   command: z.string().default('agy').description('agy 可执行文件命令(默认 agy)'),
   model: z.string().default('gemini-3.7-flash-high').description('传给 --model 的 AGY 模型'),
   effort: z.string().default('high').description('推理强度 low/medium/high'),
-  proxy: z.string().default('').description('AGY 流量代理(留空不设,例如 http://127.0.0.1:7890;运行时未设置时回落到该地址)'),
+  proxy: z.string().default('').description('AGY 流量代理(例如 http://127.0.0.1:7890;留空回落到插件配置的默认代理)'),
   /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
   delegationGuide: z.boolean().default(true).description('注入子代理委派提示词'),
   /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
@@ -88,7 +88,7 @@ export function agyTest(command: string, proxy: string): Promise<{ ok: boolean; 
 }
 
 /** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
-export function registerAgySettings(ctx: Context): void {
+export function registerAgySettings(ctx: Context): () => Record<string, string> {
   let current: () => Record<string, unknown> = () => ({})
   installSettingsSection(ctx, AGY_SETTINGS_NAMESPACE, AgySettingsConfig, {}, {
     setSource: (source) => { current = source as () => Record<string, unknown> },
@@ -139,4 +139,5 @@ export function registerAgySettings(ctx: Context): void {
         }]
       })
   }
+  return sectionOf
 }
