@@ -85,7 +85,7 @@ async function describeImage(
   let description: string
   try {
     writeFileSync(tmp, stored.data)
-    description = agyReadImage(command, proxy, tmp)
+    description = await agyReadImage(command, proxy, tmp)
   } catch (error) {
     description = `[用户粘贴的图片读取失败:${String(error).slice(0, 200)}]`
   } finally {

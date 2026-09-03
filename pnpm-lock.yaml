@@ -11,9 +11,6 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: '>=0.1.0-rc.6'
         version: 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))
-      '@deepseek-ai/dsh-web':
-        specifier: '>=0.1.0-rc.6'
-        version: 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))(@deepseek-ai/dsh-llm@..+repo+packages+llm+llm)
       '@deepseek-ai/schemastery':
         specifier: ^3.0.0
         version: 3.18.1
@@ -45,6 +42,9 @@ importers:
       '@deepseek-ai/dsh-util-values':
         specifier: link:D:/Projects/DeepseekHarness/repo/packages/util/values
         version: link:../../repo/packages/util/values
+      '@deepseek-ai/dsh-web':
+        specifier: link:D:/Projects/DeepseekHarness/repo/packages/web/web
+        version: link:../../repo/packages/web/web
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
@@ -85,13 +85,6 @@ packages:
     resolution: {integrity: sha512-WfEfOi99a4cpOugRAHTBSTnesLieu3ist1q9PXDXFBHX++K1rAl9+sB7YrdnbB8LH0UOY532gS9xJUYU6w0SLw==}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
-
-  '@deepseek-ai/dsh-web@0.1.0-rc.6':
-    resolution: {integrity: sha512-ABFbyDgo+DGaCtdRnjYG7Rz2K4dFlPA+xCEIt5MDobK/9CRQNpdZ4YrhHiq0nxwl1oxEM1Zw48ylFt+PwtS9ug==}
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1
-      '@deepseek-ai/dsh-invariants': ^0.1.0-rc.6
-      '@deepseek-ai/dsh-llm': ^0.1.0-rc.6
 
   '@deepseek-ai/schemastery@3.18.1':
     resolution: {integrity: sha512-Qn0FCSwCQnpnj6SB31I6i2sIKgKWnkbJM8O0EU91Gv2UsYVvtZTl6IA0sCwk2e2MZf5S8w5hpq9QkeVvK9qwxg==}
@@ -1034,13 +1027,6 @@ snapshots:
   '@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)':
     dependencies:
       '@deepseek-ai/cordis': link:../../repo/vendor/cordis
-      '@deepseek-ai/schemastery': 3.18.1
-
-  '@deepseek-ai/dsh-web@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))(@deepseek-ai/dsh-llm@..+repo+packages+llm+llm)':
-    dependencies:
-      '@deepseek-ai/cordis': link:../../repo/vendor/cordis
-      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)
-      '@deepseek-ai/dsh-llm': link:../../repo/packages/llm/llm
       '@deepseek-ai/schemastery': 3.18.1
 
   '@deepseek-ai/schemastery@3.18.1':
