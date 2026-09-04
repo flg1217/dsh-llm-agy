@@ -61,7 +61,7 @@ function fakeProc(script: readonly (readonly [string, string | number])[]):
 /** 用注入的小超时跑一次 search。 */
 async function search(
   script: readonly (readonly [string, string | number])[],
-  timeouts: { idleMs: number },
+  timeouts: { firstMs?: number; idleMs?: number; totalMs?: number },
 ): Promise<{ ok: true; content?: string } | { ok: false; error: string }> {
   mockedSpawn.mockClear()
   mockedSpawn.mockImplementation(() => fakeProc(script) as unknown as ReturnType<typeof spawn>)
@@ -110,9 +110,54 @@ describe('AGY 搜索超时:还在出活就续命', () => {
     if (!outcome.ok) expect(outcome.error).toContain('超时')
   })
 
-  it('默认空闲超时:3 分钟,不设总时长', async () => {
+  it('完全无输出:首包超时先于空闲超时触发(卡启动/登录时快速失败)', async () => {
+    const script: (readonly [string, string | number])[] = [['wait', 5000]]
+    const started = Date.now()
+    const outcome = await search(script, { firstMs: 200, idleMs: 10_000 })
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.error).toContain('无首行输出')
+    // 不应该等到空闲阈值(10s)才失败。
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  it('持续输出但超过总时长软上限:被 totalMs 终止', async () => {
+    // 每 100ms 一次输出,空闲超时永远不会触发,但总时长上限必须兜底。
+    const script: (readonly [string, string | number])[] = [
+      ['emit', line({ event: 'init' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+      ['wait', 100], ['emit', line({ event: 'step_update' })],
+    ]
+    const outcome = await search(script, { idleMs: 5_000, totalMs: 300 })
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.error).toContain('总时长')
+  })
+
+  it('默认超时预算:首包 45s / 空闲 60s / 总时长 10 分钟', async () => {
     const { DEFAULT_AGY_RUN_TIMEOUTS } = await import('../src/agy-run.ts')
-    expect(DEFAULT_AGY_RUN_TIMEOUTS).toEqual({ idleMs: 180_000 })
+    expect(DEFAULT_AGY_RUN_TIMEOUTS).toEqual({
+      firstMs: 45_000,
+      idleMs: 60_000,
+      totalMs: 600_000,
+    })
   })
 })
 

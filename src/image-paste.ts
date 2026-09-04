@@ -35,6 +35,11 @@ const imageDeclared = new Set<string>()
 /** 原生支持多模态(image)的模型路由(provider:model):始终跳过转换拦截。 */
 const imageCapable = new Set<string>()
 
+/** 该模型路由是否原生支持 image(由 resolveModelInfo 探测后填充)。 */
+export function isImageCapableRoute(provider: string, model: string): boolean {
+  return imageCapable.has(`${provider}:${model}`)
+}
+
 /** 图片媒体类型 → 扩展名。 */
 function extensionOf(mediaType: string): string {
   switch (mediaType) {

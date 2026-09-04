@@ -167,26 +167,24 @@ window.__ModuleLoader__.load({
       // AGY 搜索接管开关:读写 agy settings namespace 的 searchOverride。
       const [searchOverrideOn, setSearchOverrideOn] = react.useState(true)
       react.useEffect(() => {
-        let cancelled = false
-        connection.api.settings.describe({}).then((resp) => {
-          if (cancelled) return
-          const ns = resp?.result?.value?.namespaces?.find?.((n) => n.ns === 'agy')
-          if (ns?.value?.searchOverride !== undefined) setSearchOverrideOn(Boolean(ns.value.searchOverride))
-        }).catch(() => {})
-        return () => { cancelled = true }
-      }, [connection])
+        try {
+          const v = scope.getSnapshot().value
+          if (v?.searchOverride !== undefined) setSearchOverrideOn(Boolean(v.searchOverride))
+        } catch { /* 镜像未就绪 */ }
+        return scope.subscribe(() => {
+          const v2 = scope.getSnapshot().value
+          if (v2?.searchOverride !== undefined) setSearchOverrideOn(Boolean(v2.searchOverride))
+        })
+      }, [scope])
       const toggleSearchOverride = react.useCallback(async () => {
         const next = !searchOverrideOn
         setSearchOverrideOn(next)
         try {
-          await connection.api.settings.mutate({
-            ns: 'agy',
-            ops: [{ path: ['searchOverride'], op: 'set', value: next }],
-          })
+          await scope.set('searchOverride', next)
         } catch (e) {
           setSearchOverrideOn(!next)
         }
-      }, [connection, searchOverrideOn])
+      }, [scope, searchOverrideOn])
 
       // 默认模型 + 代理:config 探测取当前值与明细;models 探测取可选列表;
       // 弹窗用官方 Modal,输入框用官方 Input(铺满卡片宽度)。

@@ -5,10 +5,21 @@
  * AGY agent(会自己搜索/看图、阅读全文、综合回答),耗时可能远超 dsh 侧
  * 任何工具的协作式超时预算,因此超时完全由本执行器自主设计:
  *
- * - **空闲超时**:持续输出(step_update)就续命,只有长时间没有任何输出
- *   才判定卡死——深度调研/复杂读图期间 AGY 会不断报告进展,按总时长
- *   一刀切会把正常长任务误杀,因此**不设总时长上限**;进程级兜底由传给
- *   AGY 的 `--print-timeout`(60 分钟)负责,正常任务不会被时长误杀。
+ * 超时分三段,各自解决一类事故:
+ *
+ * - **首包超时**(`firstMs`):spawn 到第一行输出。正常情况下 AGY 约 8s 出首包;
+ *   卡在启动/登录/代理握手时一行都没有,必须早失败而不是干等。
+ * - **空闲超时**(`idleMs`):持续输出(step_update)就续命,长时间没有任何
+ *   输出才判定卡死。深度调研期间 AGY 会不断报告进展,所以空闲窗口按
+ *   "正常出活间隔"定,不是按总时长。
+ * - **总时长软上限**(`totalMs`):防止"一直有输出但永远不收敛"的调用
+ *   无限占用。默认 10 分钟,读图这类短任务调用方会传更短的值。
+ *
+ * 关键约束:**超时必须真的能返回**。只 `proc.kill()` 不够——若是包装脚本
+ * 起的进程树,子进程可能仍持有 stdout 写端,`for await (const line of rl)`
+ * 会永久挂起(此时唯一的定时器已经 fire 过,再没有任何东西能救)。因此超时
+ * 回调里要同时 `rl.close()` + `stdout.destroy()`,并用 `finish()` 直接放行
+ * 等待。
  *
  * 错误语义:成功返回 `result.response` 文本;AGY 报错、超时、无输出一律
  * 抛出带原因的 Error,由调用方决定如何呈现。
@@ -30,14 +41,23 @@ export interface AgyRunTextOptions {
     cwd?: string;
     /** 调用方取消信号。 */
     signal?: AbortSignal;
-    /** 空闲超时(可选,默认 3 分钟):多久没有任何输出即判定卡死。 */
+    /**
+     * 超时预算(全部可选):
+     * - `firstMs`: 首包超时,默认 45s(正常约 8s);
+     * - `idleMs`: 空闲超时,默认 60s(持续输出就续命);
+     * - `totalMs`: 总时长软上限,默认 10 分钟。
+     */
     timeouts?: {
+        firstMs?: number;
         idleMs?: number;
+        totalMs?: number;
     };
 }
-/** 默认空闲超时:3 分钟。AGY 每次调用都持续输出 step_update,窗口足够宽松。 */
+/** 默认超时预算。 */
 export declare const DEFAULT_AGY_RUN_TIMEOUTS: {
+    firstMs: number;
     idleMs: number;
+    totalMs: number;
 };
 /**
  * 跑一次 AGY print 调用并返回 `result.response` 文本。

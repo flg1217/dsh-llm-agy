@@ -9,9 +9,10 @@ import z from '@deepseek-ai/schemastery'
 import { AgyLlmAdapter } from './adapter.js'
 import { AgySearchProvider } from './search.js'
 import type {} from '@deepseek-ai/dsh-settings'
+import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { registerAgySearchTool } from './search-tool.js'
 import { readImageAgyEnabled, registerAgySettings, searchOverrideEnabled } from './settings.js'
-import { installImageRelay } from './image-paste.js'
+import { installImageRelay, isImageCapableRoute } from './image-paste.js'
 import { registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
 import { registerSubagentTool } from './subagent-tool.js'
@@ -161,16 +162,43 @@ export function apply(ctx: Context, config: Config): void {
         // 而 relay 为了让文本模型能调用它,会把模型伪声明为支持 image——
         // 于是调用成功、图片块进入历史,下一次请求才被适配器硬拒
         // (`pi-ai model "X" does not support image input`)。勾上本开关即改为
-        // 走 AGY 看图,工具调用直接被拒并指路 read_image_agy。
-        imageServiceDisposers.add(ctx.on('tools/pre-execute', (exec, next) => {
+        // 走 AGY 看图,文本模型的工具调用被拒并指路 read_image_agy;
+        // **原生多模态模型不受影响**:图片块能被模型直接消费,放行原生工具。
+        imageServiceDisposers.add(ctx.on('tools/pre-execute', async (exec, next) => {
           if (exec.name !== 'read_image') return next()
-          return Promise.resolve({
+          const agent = (exec as {
+            agent?: {
+              session?: { requestHeader?: () => { config?: { provider?: string; model?: string } } }
+              options?: { provider?: string; model?: string }
+            }
+          }).agent
+          const routed = agent?.session?.requestHeader?.()?.config
+          const target = routed?.provider !== undefined && routed.provider.length > 0
+            && routed.model !== undefined && routed.model.length > 0
+            ? { provider: routed.provider, model: routed.model }
+            : agent?.options?.provider !== undefined && agent.options.provider.length > 0
+              && agent.options.model !== undefined && agent.options.model.length > 0
+              ? { provider: agent.options.provider, model: agent.options.model }
+              : undefined
+          if (target !== undefined) {
+            if (isImageCapableRoute(target.provider, target.model)) return next()
+            // 集合未填充(该模型还没走过 resolveModelInfo):探测一次真实能力。
+            try {
+              const llm = ctx.llm as {
+                resolveModelInfo?: (provider: string, model: string) => Promise<LlmResolvedModelInfo | undefined>
+              }
+              const info = await llm.resolveModelInfo?.(target.provider, target.model)
+              if (info?.inputModalities?.includes('image') === true) return next()
+            } catch {
+              /* 探测失败按文本模型拦截,由 read_image_agy 接手 */
+            }
+          }
+          return {
             kind: 'deny',
-            reason: 'read_image is disabled while "使用 AGY 读取图片" is on: '
-              + 'it requires a model that declares image input and its image block would be '
-              + 'rejected on the next request. Call read_image_agy instead (same file_path / attachment id, '
-              + 'plus an optional `prompt` to steer what to look for).',
-          })
+            reason: 'read_image is disabled while "使用 AGY 读取图片" is on and the routed model is text-only: '
+              + 'its image block would be rejected on the next request. Call read_image_agy instead '
+              + '(same file_path / attachment id, plus an optional `prompt` to steer what to look for).',
+          }
         }))
       }
     } else {

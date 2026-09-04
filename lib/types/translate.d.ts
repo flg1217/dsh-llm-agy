@@ -16,6 +16,15 @@ import type { AgyLine, AgyStep, AgyUsage } from './types.js';
  * (否则 input < cache 时产生负数,持久化 schema 校验会失败)。
  */
 export declare function mapAgyUsage(u: AgyUsage): TokenUsage;
+/**
+ * 还原一个经 latin1 读取的字符串为 UTF-8 文本。
+ * stdout 用 latin1 读入时,UTF-8 多字节字符被拆成单字节字符(全部 ≤ U+00FF);
+ * 但若 AGY 输出的是 \uXXXX 转义或纯 ASCII,字符串本身就是正确的——含任何
+ * > U+00FF 的字符(如正常中文)说明未损坏,原样返回,避免二次破坏。
+ */
+export declare function latin1ToUtf8(value: string): string;
+/** 深度还原:字符串逐个 latin1ToUtf8,数组/对象递归。 */
+export declare function fixLatin1Deep(value: unknown): unknown;
 /** 解析 AGY stream-json 一行。 */
 export declare function parseAgyLine(line: string): AgyLine | undefined;
 /**

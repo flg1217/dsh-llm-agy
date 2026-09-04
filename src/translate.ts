@@ -26,6 +26,36 @@ export function mapAgyUsage(u: AgyUsage): TokenUsage {
   }
 }
 
+/**
+ * 还原一个经 latin1 读取的字符串为 UTF-8 文本。
+ * stdout 用 latin1 读入时,UTF-8 多字节字符被拆成单字节字符(全部 ≤ U+00FF);
+ * 但若 AGY 输出的是 \uXXXX 转义或纯 ASCII,字符串本身就是正确的——含任何
+ * > U+00FF 的字符(如正常中文)说明未损坏,原样返回,避免二次破坏。
+ */
+export function latin1ToUtf8(value: string): string {
+  let hasHigh = false
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code > 0xFF) return value
+    if (code >= 0x80) hasHigh = true
+  }
+  return hasHigh ? Buffer.from(value, 'latin1').toString('utf8') : value
+}
+
+/** 深度还原:字符串逐个 latin1ToUtf8,数组/对象递归。 */
+export function fixLatin1Deep(value: unknown): unknown {
+  if (typeof value === 'string') return latin1ToUtf8(value)
+  if (Array.isArray(value)) return value.map(fixLatin1Deep)
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = fixLatin1Deep(item)
+    }
+    return out
+  }
+  return value
+}
+
 /** 解析 AGY stream-json 一行。 */
 export function parseAgyLine(line: string): AgyLine | undefined {
   if (!line.trim().startsWith('{')) return undefined
@@ -69,9 +99,11 @@ export function parseAgyLine(line: string): AgyLine | undefined {
           step.toolName = typeof su.tool_name === 'string' ? su.tool_name : undefined
           const info = su.tool_info
           if (info?.parameters !== undefined && typeof info.parameters === 'object') {
-            step.toolParams = info.parameters as Record<string, unknown>
+            // parameters 经 latin1 读取,字段值(如 send_message 的正文)需还原为 UTF-8,
+            // 否则 tool/call 事件与执行反馈里的参数全是乱码。
+            step.toolParams = fixLatin1Deep(info.parameters) as Record<string, unknown>
           }
-          if (info?.output !== undefined) step.output = info.output
+          if (info?.output !== undefined) step.output = fixLatin1Deep(info.output)
         }
         out.step = step
       }
@@ -101,7 +133,9 @@ export function parseAgyLine(line: string): AgyLine | undefined {
       if (interrupted) return { final: true }
       return {
         final: true,
-        ...typeof r?.error === 'string' && r.error.length > 0 ? { resultError: r.error } : {},
+        ...typeof r?.error === 'string' && r.error.length > 0
+          ? { resultError: latin1ToUtf8(r.error) }
+          : {},
       }
     }
     return undefined

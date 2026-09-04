@@ -23,6 +23,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Message } from '@deepseek-ai/dsh-llm';
+/** 该模型路由是否原生支持 image(由 resolveModelInfo 探测后填充)。 */
+export declare function isImageCapableRoute(provider: string, model: string): boolean;
 /**
  * 转换请求消息:把**所有**消息内容里的 ImageBlock(含 tool-result 嵌套)都
  * 转换为描述文本——文本模型(如 deepseek-v4-flash)的流式适配器会在序列化

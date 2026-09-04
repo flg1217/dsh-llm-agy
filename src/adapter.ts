@@ -121,13 +121,16 @@ export class AgyLlmAdapter extends LlmAdapter {
         const resumeArgs = attempt > 1 && conversationId !== undefined
           ? ['--conversation', conversationId]
           : []
+        // 模型名自带强度后缀(gemini-3.8-flash-high 等)时,AGY 拒绝再传
+        // --effort("--model X conflicts with --effort=Y"),此时静默省略。
+        const effortArgs = /-(low|medium|high)$/i.test(model) ? [] : ['--effort', effort]
         const proc: ChildProcess = spawn(command, [
           '-p', attemptPrompt,
           '--output-format', 'stream-json',
           // AGY 默认 print-timeout 5 分钟,长任务会超时退出 1;放宽到 1 小时。
           '--print-timeout', '60m',
           '--model', model,
-          '--effort', effort,
+          ...effortArgs,
           // 非交互模式下 AGY 的工具调用需要放行。
           '--dangerously-skip-permissions',
           // 显式指定工作区:否则 AGY 默认在用户主目录搜索/操作。
@@ -219,10 +222,8 @@ export class AgyLlmAdapter extends LlmAdapter {
                 } else if (state === 'DONE' || state === 'ERROR') {
                   const seq = stepIndex !== undefined ? toolCallSeq.get(stepIndex) : undefined
                   const output = agyStep.output
-                  // 工具输出同样做 latin1→UTF-8 还原(与 text_delta 一致;
-                  // AGY 输出的 JSON 字符串经 latin1 读取后,高位字节需还原)。
-                  const raw = typeof output === 'string' ? output : ''
-                  const textOut = raw.length > 0 ? Buffer.from(raw, 'latin1').toString('utf8') : ''
+                  // 工具输出的 latin1→UTF-8 还原已在 translator(fixLatin1Deep)完成。
+                  const textOut = typeof output === 'string' ? output : ''
                   session.append('tool/result', {
                     turn,
                     step,
@@ -276,9 +277,10 @@ export class AgyLlmAdapter extends LlmAdapter {
         // 任何异常都附上最近的完整执行轨迹,主代理能看到异常发生在哪个环节。
         const executionFeedbackBlocks = (): StreamChunk[] => {
           const steps = translator.recentSteps
-          const failed = steps.filter(s => s.status === 'FAILED')
-          // 没有任何失败迹象(无 effectiveError / 无工具错 / 上下文没超限)→ 不输出
-          if (effectiveError === undefined && failed.length === 0 && !contextExhausted) return []
+          // 只在 AGY 整体失败(result ERROR / 静默零输出 / 上下文超限)时反馈。
+          // 单步工具失败不算:AGY 经常自行重试或绕过后正常完成任务,此时
+          // 在成功的报告后面拖一段"执行异常反馈"只会误导主代理。
+          if (effectiveError === undefined && !contextExhausted) return []
           const lines: string[] = []
           if (effectiveError !== undefined) {
             lines.push(`**执行报错**:${effectiveError.slice(0, 250)}`)
@@ -286,6 +288,7 @@ export class AgyLlmAdapter extends LlmAdapter {
           if (contextExhausted) {
             lines.push(`**AGY 报告上下文超限**,继续重试大概率无意义`)
           }
+          const failed = steps.filter(s => s.status === 'FAILED')
           if (failed.length > 0) {
             lines.push(`**${failed.length} 步工具调用失败**`)
           }
