@@ -104,6 +104,7 @@ export function parseAgyLine(line: string): AgyLine | undefined {
             step.toolParams = fixLatin1Deep(info.parameters) as Record<string, unknown>
           }
           if (info?.output !== undefined) step.output = fixLatin1Deep(info.output)
+          if (info?.error !== undefined) step.toolError = fixLatin1Deep(info.error)
         }
         out.step = step
       }

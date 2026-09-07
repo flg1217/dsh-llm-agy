@@ -23,6 +23,8 @@ export interface AgyStep {
     toolParams?: Record<string, unknown>;
     /** 工具输出(step_type=tool 且 DONE 时)。 */
     output?: unknown;
+    /** 工具错误文本(tool_info.error,失败时可能只有它没有 output)。 */
+    toolError?: unknown;
 }
 /** 解析后的 AGY 一行事件。 */
 export interface AgyLine {
@@ -72,6 +74,7 @@ export interface AgyEvent {
             name?: unknown;
             parameters?: unknown;
             output?: unknown;
+            error?: unknown;
         };
     };
     result?: AgyResult;

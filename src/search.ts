@@ -40,10 +40,10 @@ export interface AgySearchOptions {
   effort: string
   proxy?: string
   /**
-   * 超时预算(可选)。生产用执行器默认(空闲 3 分钟 / 总 15 分钟);
+   * 超时预算(可选)。生产用执行器默认(动态空闲阈值/无总时长上限);
    * 测试注入小值以便压缩时间。
    */
-  timeouts?: { idleMs?: number; totalMs?: number }
+  timeouts?: { firstMs?: number; idleMinMs?: number; idleMaxMs?: number; idleFactor?: number }
 }
 
 /**

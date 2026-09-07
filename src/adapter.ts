@@ -223,7 +223,10 @@ export class AgyLlmAdapter extends LlmAdapter {
                   const seq = stepIndex !== undefined ? toolCallSeq.get(stepIndex) : undefined
                   const output = agyStep.output
                   // 工具输出的 latin1→UTF-8 还原已在 translator(fixLatin1Deep)完成。
-                  const textOut = typeof output === 'string' ? output : ''
+                  // 失败时 output 可能为空、错误只在 tool_info.error 里,兜底取它。
+                  const textOut = typeof output === 'string' && output.length > 0
+                    ? output
+                    : typeof agyStep.toolError === 'string' ? agyStep.toolError : ''
                   session.append('tool/result', {
                     turn,
                     step,

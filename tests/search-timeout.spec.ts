@@ -61,7 +61,13 @@ function fakeProc(script: readonly (readonly [string, string | number])[]):
 /** 用注入的小超时跑一次 search。 */
 async function search(
   script: readonly (readonly [string, string | number])[],
-  timeouts: { firstMs?: number; idleMs?: number; totalMs?: number },
+  timeouts: {
+    firstMs?: number
+    idleMinMs?: number
+    idleMaxMs?: number
+    idleFactor?: number
+    idleWarmupLines?: number
+  },
 ): Promise<{ ok: true; content?: string } | { ok: false; error: string }> {
   mockedSpawn.mockClear()
   mockedSpawn.mockImplementation(() => fakeProc(script) as unknown as ReturnType<typeof spawn>)
@@ -79,10 +85,10 @@ async function search(
   }
 }
 
-describe('AGY 搜索超时:还在出活就续命', () => {
-  it('持续输出时不被空闲超时杀掉(总耗时超过空闲阈值也照常返回)', async () => {
-    // 空闲阈值 300ms,但每 120ms 就有一次输出:累计耗时远超 300ms,
-    // 按总时长一刀切的做法会在这里被误杀。
+describe('AGY 搜索超时:动态空闲阈值,有输出就续期', () => {
+  it('持续输出时不被空闲超时杀掉(总耗时远超单次静默阈值也照常返回)', async () => {
+    // 每 120ms 一次输出 → 历史最大间隔 ≈120ms,阈值 = max(120×3, min) =
+    // idleMinMs;只要间隔小于阈值就持续续命,没有任何总时长上限。
     const script: (readonly [string, string | number])[] = [
       ['emit', line({ event: 'init' })],
       ['wait', 120],
@@ -94,69 +100,101 @@ describe('AGY 搜索超时:还在出活就续命', () => {
       ['wait', 120],
       ['emit', resultLine('https://example.com/a 标题: 示例')],
     ]
-    const outcome = await search(script, { idleMs: 300 })
+    const outcome = await search(script, { idleMinMs: 300, idleMaxMs: 5_000 })
     expect(outcome.ok).toBe(true)
     if (outcome.ok) expect(outcome.content).toContain('https://example.com/a')
   })
 
-  it('长时间没有输出才判定卡死,并抛出明确的超时错误', async () => {
-    // 只吐 init,然后一直沉默:空闲阈值到了就该被终止,而不是等到总上限。
+  it('静默超过动态阈值(下限)才判定卡死,错误信息带诊断', async () => {
+    // 只吐 init(无样本),然后一直沉默:阈值 = idleMaxMs 宽容等待,
+    // 这里注入小值验证按时失败。
     const script: (readonly [string, string | number])[] = [
       ['emit', line({ event: 'init' })],
       ['wait', 5000],
     ]
-    const outcome = await search(script, { idleMs: 200 })
+    const outcome = await search(script, { idleMinMs: 200, idleMaxMs: 400 })
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) expect(outcome.error).toContain('超时')
+  })
+
+  it('热身行数内一律宽容:间隔 300ms 的早期任务静默 500ms 不被误杀', async () => {
+    // 行数 ≤ idleWarmupLines(默认 6):历史间隔还不足以预测后续静默,
+    // 阈值 = idleMaxMs 宽容等待,静默 500ms(远大于间隔 300ms)应存活。
+    const script: (readonly [string, string | number])[] = [
+      ['emit', line({ event: 'init' })],
+      ['wait', 300], ['emit', line({ event: 'step_update' })],
+      ['wait', 300], ['emit', line({ event: 'step_update' })],
+      ['wait', 300], ['emit', line({ event: 'step_update' })],
+      ['wait', 500], ['emit', resultLine('https://example.com/deep 标题: 深度任务')],
+    ]
+    const outcome = await search(script, { idleMinMs: 200, idleMaxMs: 2_000 })
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.content).toContain('https://example.com/deep')
+  })
+
+  it('样本足够后阈值按历史最大间隔收紧:静默超限被终止并带诊断', async () => {
+    // warmup 收缩到 2 行:第 3 行起阈值 = clamp(maxGap×3, 200, 2000)。
+    // 前 8 行间隔 100ms → maxGap≈100ms → 阈值 ≈300ms;随后静默 800ms 超限失败,
+    // 错误信息必须带"历史最大行间隔"诊断。
+    const script: (readonly [string, string | number])[] = [['emit', line({ event: 'init' })]]
+    for (let i = 0; i < 8; i += 1) script.push(['wait', 100], ['emit', line({ event: 'step_update' })])
+    script.push(['wait', 800], ['emit', resultLine('should not reach')])
+    const outcome = await search(script, {
+      idleMinMs: 200,
+      idleMaxMs: 2_000,
+      idleFactor: 3,
+      idleWarmupLines: 2,
+    })
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.error).toContain('历史最大行间隔')
+  })
+
+  it('样本足够后,间隔略超历史最大值但未超阈值时仍存活', async () => {
+    // 同上收紧场景,但末尾静默 350ms < 阈值 300ms×(略高容差)——
+    // 用 300ms 间隔(== maxGap,阈值 300ms 临界)改为 250ms 静默,
+    // 250 < 300 应存活并正常返回。
+    const script: (readonly [string, string | number])[] = [['emit', line({ event: 'init' })]]
+    for (let i = 0; i < 8; i += 1) script.push(['wait', 100], ['emit', line({ event: 'step_update' })])
+    script.push(['wait', 250], ['emit', resultLine('https://example.com/tail 标题: 尾部结果')])
+    const outcome = await search(script, {
+      idleMinMs: 200,
+      idleMaxMs: 2_000,
+      idleFactor: 3,
+      idleWarmupLines: 2,
+    })
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.content).toContain('https://example.com/tail')
   })
 
   it('完全无输出:首包超时先于空闲超时触发(卡启动/登录时快速失败)', async () => {
     const script: (readonly [string, string | number])[] = [['wait', 5000]]
     const started = Date.now()
-    const outcome = await search(script, { firstMs: 200, idleMs: 10_000 })
+    const outcome = await search(script, { firstMs: 200, idleMaxMs: 10_000 })
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) expect(outcome.error).toContain('无首行输出')
     // 不应该等到空闲阈值(10s)才失败。
     expect(Date.now() - started).toBeLessThan(5_000)
   })
 
-  it('持续输出但超过总时长软上限:被 totalMs 终止', async () => {
-    // 每 100ms 一次输出,空闲超时永远不会触发,但总时长上限必须兜底。
-    const script: (readonly [string, string | number])[] = [
-      ['emit', line({ event: 'init' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-      ['wait', 100], ['emit', line({ event: 'step_update' })],
-    ]
-    const outcome = await search(script, { idleMs: 5_000, totalMs: 300 })
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.error).toContain('总时长')
+  it('没有总时长上限:持续输出永不因总时长被杀', async () => {
+    // 间隔 100ms 的 24 行输出,总耗时 ~2.4s;任何"总时长上限"都会在
+    // 有输出时误杀——现在只有静默才计时,该脚本必须自然跑完。
+    const script: (readonly [string, string | number])[] = [['emit', line({ event: 'init' })]]
+    for (let i = 0; i < 24; i += 1) script.push(['wait', 100], ['emit', line({ event: 'step_update' })])
+    script.push(['emit', resultLine('https://example.com/long 标题: 长任务完成')])
+    const outcome = await search(script, { idleMinMs: 200, idleMaxMs: 2_000 })
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.content).toContain('https://example.com/long')
   })
 
-  it('默认超时预算:首包 45s / 空闲 60s / 总时长 10 分钟', async () => {
+  it('默认超时预算:首包 45s / 动态空闲 clamp [150s, 600s] × 3 / 热身 6 行', async () => {
     const { DEFAULT_AGY_RUN_TIMEOUTS } = await import('../src/agy-run.ts')
     expect(DEFAULT_AGY_RUN_TIMEOUTS).toEqual({
       firstMs: 45_000,
-      idleMs: 60_000,
-      totalMs: 600_000,
+      idleMinMs: 150_000,
+      idleMaxMs: 600_000,
+      idleFactor: 3,
+      idleWarmupLines: 6,
     })
   })
 })
@@ -168,7 +206,7 @@ describe('AGY 搜索跟随设置面板', () => {
       command: 'agy',
       model: 'gemini-3.7-flash-high',
       effort: 'high',
-      timeouts: { idleMs: 500 },
+      timeouts: { idleMaxMs: 500 },
       // 模拟 index.ts 里设置面板驱动的 getter:优先面板 → 回退 config → 内建默认。
       get proxy(): string { return proxy },
     }
