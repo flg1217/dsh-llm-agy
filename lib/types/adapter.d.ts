@@ -19,8 +19,23 @@ export interface AgyAdapterOptions {
     maxAttempts?: number;
     /** 启动级失败重试间隔(毫秒)。 */
     retryDelayMs?: number;
-    /** 无输出兜底:AGY 超过该时长无任何 stdout 输出则强制结束(默认 10 分钟)。 */
+    /**
+     * 兼容旧配置:无输出兜底时长(ms,默认 10 分钟),作为动态空闲阈值的上限。
+     * 动态阈值参数见 {@link AgyAdapterOptions.timeouts}。
+     */
     stallTimeoutMs?: number;
+    /**
+     * 动态空闲超时预算(默认见 {@link DEFAULT_AGY_RUN_TIMEOUTS}):热身行数内
+     * 一律 idleMaxMs 宽容,样本足够后阈值 = clamp(历史最大行间隔 × factor,
+     * idleMinMs, idleMaxMs)。无总时长上限——有 stdout 行就永远续期。
+     */
+    timeouts?: {
+        firstMs?: number;
+        idleMinMs?: number;
+        idleMaxMs?: number;
+        idleFactor?: number;
+        idleWarmupLines?: number;
+    };
 }
 /**
  * AGY 模型适配器。stream() 每次调用:
