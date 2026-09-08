@@ -295,6 +295,12 @@ export class AgyLlmAdapter extends LlmAdapter {
             stderrTail = (stderrTail + chunk).slice(-4000)
           })
         }
+        // AGY 主进程退出 → 立即销毁读流:它的工具子进程可能继承 stdout 写端
+        // (实测 run_command 卡死场景),不销毁的话 for-await 会等一个永远不
+        // 来的 EOF,子代理永挂——此时 AGY 的流已无任何意义。
+        proc.on('close', () => {
+          try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
+        })
 
         // 工具步骤落地为会话事件所需的 turn/step(从子代理会话推断)。
         const session = options.sessionId !== undefined ? this.ctx.get('sessions')?.get(options.sessionId) : undefined
@@ -334,6 +340,11 @@ export class AgyLlmAdapter extends LlmAdapter {
                 sawToolStep = true
                 const callId = agyCallId(toolName, stepIndex, attempt)
                 if (state === 'ACTIVE') {
+                  // 去重:AGY 的工具参数流式生成,同一 step 的 ACTIVE 会来多次
+                  // (空壳 → 参数逐步补全)。tool/call 只落地第一次,重复落地
+                  // 会让前端装配器崩掉(received more than one start Match,
+                  // 实测毒死整个事件订阅流,子代理窗口全白)。
+                  if (stepIndex !== undefined && toolCallSeq.has(stepIndex)) return
                   const ev = session.append('tool/call', {
                     turn,
                     step,
@@ -347,7 +358,9 @@ export class AgyLlmAdapter extends LlmAdapter {
                   translator.recentSteps.push({ toolName, args, status: 'running' })
                   if (translator.recentSteps.length > 8) translator.recentSteps.splice(0, translator.recentSteps.length - 8)
                 } else if (state === 'DONE' || state === 'ERROR') {
-                  const seq = stepIndex !== undefined ? toolCallSeq.get(stepIndex) : undefined
+                  // 去重:无配对 call 或已落过 result 的重复 DONE/ERROR 直接忽略。
+                  if (stepIndex === undefined || !toolCallSeq.has(stepIndex)) return
+                  const seq = toolCallSeq.get(stepIndex)
                   const output = agyStep.output
                   // 工具输出的 latin1→UTF-8 还原已在 translator(fixLatin1Deep)完成。
                   // 失败时 output 可能为空、错误只在 tool_info.error 里,兜底取它。
