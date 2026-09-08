@@ -5,7 +5,7 @@
  * @module llm-agy/adapter
  */
 
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { once } from 'node:events'
@@ -56,6 +56,18 @@ export interface AgyAdapterOptions {
  */
 const RETRYABLE_ERROR_RE = /retryable|network issue|connection|timeout|overloaded|unavailable|5\d\d|ECONN|ETIMEDOUT|not logged|login|credential|token source|unauthorized|expired/i
 
+/** 进程树杀:AGY 残留的 npm/工具子进程会占端口、拖住输出流,必须 /T 递归。 */
+function killProcessTree(proc: ChildProcess): void {
+  try {
+    if (proc.pid !== undefined) {
+      spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        .on('error', () => { try { proc.kill() } catch { /* 已退出 */ } })
+    }
+  } catch { /* 已退出 */ }
+  try { proc.kill() } catch { /* 已退出 */ }
+  try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
+}
+
 /** AGY 进程退出兜底:进程卡死(如上下文超限后挂起)时强制结束,
  * 保证 stream 一定会结束 → 子代理 agent 一定 idle → settle 通知必达。 */
 async function closeWithTimeout(
@@ -66,11 +78,11 @@ async function closeWithTimeout(
   const closePromise = once(proc, 'close') as Promise<[number | null, string | null]>
   let timer: ReturnType<typeof setTimeout> | undefined
   if (signal?.aborted) {
-    proc.kill()
+    killProcessTree(proc)
   } else {
     timer = setTimeout(() => {
       // 兜底:AGY 卡死(不退出、不输出)时杀掉,让调用方以错误收尾。
-      proc.kill()
+      killProcessTree(proc)
     }, timeoutMs)
   }
   try {
@@ -130,9 +142,13 @@ export class AgyLlmAdapter extends LlmAdapter {
         // 第 2 次起:复用首次 AGY 会话续跑,而不是重头执行;
         // 中途偶发网络错误重试时不会重复已完成的工具操作与文本。
         // 续跑 prompt 不能是原任务(会被当作新消息重做一遍),而是明确指示
-        // 继续未完成的工作、不要重复已完成部分。
+        // 继续未完成的工作、不要重复已完成部分;并明确禁止前台运行长驻进程——
+        // 实测 AGY 用 Bash 前台跑 npm run dev 会永不返回,把整次调用拖进
+        // stall 超时(重试后又犯,拖满重试次数)。
         const attemptPrompt = attempt > 1 && conversationId !== undefined
           ? '继续完成之前未完成的任务。基于当前工作区状态继续,不要重复已完成的工作,只报告新做的内容。'
+            + '注意:不要用 Bash 前台运行长驻进程(npm run dev / npm start / 服务器等)——它们永不返回会导致你卡死;'
+            + '如需启动服务验证,用后台方式(nohup ... & 或 start /B)启动,然后用 curl 轮询端口就绪。'
           : prompt
         const resumeArgs = attempt > 1 && conversationId !== undefined
           ? ['--conversation', conversationId]
@@ -170,7 +186,7 @@ export class AgyLlmAdapter extends LlmAdapter {
           throw new Error('llm-agy: agy process has no stdout stream')
         }
 
-        const onAbort = (): void => { proc.kill() }
+        const onAbort = (): void => { killTree() }
         options.signal?.addEventListener('abort', onAbort, { once: true })
 
         // 动态空闲超时(与 agy-run 搜索/读图执行器同一套算法):AGY 深度思考
@@ -196,11 +212,58 @@ export class AgyLlmAdapter extends LlmAdapter {
         let lastLineAt = startedAt
         let lineSamples = 0
         let lastBudgetMs = to.idleMaxMs
-        const failStall = (): void => {
-          stallTimedOut = true
+        // stall 评估:静默到点不直接杀——先看 AGY 是否还有活跃子进程。
+        // AGY 的 Bash 会把 dev server 等长驻命令自动后台化,之后 AGY 在正常
+        // 工作(等编译完成/轮询就绪),期间 stream-json 静默是预期行为;
+        // 此时杀掉等于杀死正在干活的任务。子进程消失(LLM 请求黑洞类死挂,
+        // AGY 单独存在)才判定真死并杀进程树。
+        let stallExtensions = 0
+        let stallChecking = false
+        let stallCheckSample = 0
+        const killTree = (): void => {
+          // 进程树杀:残留的 npm/工具子进程会占端口、拖住输出流。
+          try {
+            if (proc.pid !== undefined) {
+              spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+                .on('error', () => { try { proc.kill() } catch { /* 已退出 */ } })
+            }
+          } catch { /* 已退出 */ }
           try { proc.kill() } catch { /* 已退出 */ }
           // 进程树残留可能仍持有 stdout 写端,必须同时关流,for-await 才能结束。
           try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
+        }
+        const hasAliveChildren = (pid: number): Promise<boolean> => new Promise(resolve => {
+          execFile('powershell.exe', ['-NoProfile', '-Command',
+            `(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}" | Measure-Object).Count`],
+          { timeout: 5_000 }, (err, stdout) => {
+            if (err) { resolve(false); return }
+            const n = parseInt(String(stdout).trim(), 10)
+            resolve(Number.isFinite(n) && n > 0)
+          })
+        })
+        const evaluateStall = async (): Promise<void> => {
+          if (stallChecking || stallTimedOut) return
+          stallChecking = true
+          stallCheckSample = lineSamples
+          const pid = proc.pid
+          const busy = pid !== undefined ? await hasAliveChildren(pid) : false
+          stallChecking = false
+          // 评估期间来了新进展(输出恢复)→ 正常续命,不消耗豁免次数。
+          if (lineSamples > stallCheckSample) {
+            touch()
+            return
+          }
+          if (busy && stallExtensions < 3) {
+            // AGY 仍在管理它的后台线程:续命一个预算,最多 3 次(约 30 分钟)。
+            stallExtensions += 1
+            touch()
+            return
+          }
+          stallTimedOut = true
+          killTree()
+        }
+        const failStall = (): void => {
+          void evaluateStall()
         }
         const touch = (): void => {
           // 续命:按当前预算重置静默计时;首个活动同时撤销首包超时。
