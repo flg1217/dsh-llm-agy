@@ -8,7 +8,6 @@
 import { execFile, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { once } from 'node:events'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -68,28 +67,36 @@ function killProcessTree(proc: ChildProcess): void {
   try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
 }
 
-/** AGY 进程退出兜底:进程卡死(如上下文超限后挂起)时强制结束,
- * 保证 stream 一定会结束 → 子代理 agent 一定 idle → settle 通知必达。 */
+/**
+ * 等 AGY 进程退出:已退出直接给退出码;否则最多等 timeoutMs(到点杀进程树)。
+ *
+ * 只等 `exit` 不等 `close`:`close` 要求 stdio 全部关闭,而 AGY 的工具子进程
+ * 残留时会一直持有 stdout 写端(实测),等 `close` 会把整个回合挂死;
+ * 到点即使进程树没退干净也必须放行(退出码可能是 null,由调用方按无输出处理)。
+ * 保证 stream 一定会结束 → 子代理 agent 一定 idle → settle 通知必达。
+ */
 async function closeWithTimeout(
   proc: ChildProcess,
   signal: AbortSignal | undefined,
   timeoutMs = 30_000,
 ): Promise<[number | null, string | null]> {
-  const closePromise = once(proc, 'close') as Promise<[number | null, string | null]>
-  let timer: ReturnType<typeof setTimeout> | undefined
-  if (signal?.aborted) {
-    killProcessTree(proc)
-  } else {
+  if (proc.exitCode !== null || proc.signalCode !== null) return [proc.exitCode, proc.signalCode]
+  if (signal?.aborted) killProcessTree(proc)
+  return await new Promise<[number | null, string | null]>(resolve => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const done = (code: number | null, sig: string | null): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      resolve([code, sig])
+    }
+    proc.once('exit', done)
     timer = setTimeout(() => {
       // 兜底:AGY 卡死(不退出、不输出)时杀掉,让调用方以错误收尾。
       killProcessTree(proc)
+      done(proc.exitCode, proc.signalCode)
     }, timeoutMs)
-  }
-  try {
-    return await closePromise
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
+    // 竞态兜底:注册监听器前后正好退出(exitCode 已填)时 'exit' 不会再触发。
+    if (proc.exitCode !== null || proc.signalCode !== null) done(proc.exitCode, proc.signalCode)
+  })
 }
 
 /**
@@ -188,14 +195,20 @@ export class AgyLlmAdapter extends LlmAdapter {
 
         const onAbort = (): void => { killTree() }
         options.signal?.addEventListener('abort', onAbort, { once: true })
+        /** 结束 readline 的唯一可靠手段(见 killTree);创建 rl 后立即赋值。 */
+        let closeLines: (() => void) | undefined
+        /** 读取循环是否自然走完(result/EOF):没走完说明是被中途关闭,须回收进程。 */
+        let streamDrained = false
+        /** spawn 自身的失败(ENOENT/EINVAL 等):有它就是根因,不该报成"无输出"。 */
+        let spawnError: string | undefined
 
         // 动态空闲超时(与 agy-run 搜索/读图执行器同一套算法):AGY 深度思考
         // 期间 stdout 可静默 1~3 分钟,固定阈值必然误杀;按本次调用已观测的
         // 最大行间隔自适应 clamp(最大间隔 × factor, min, max),热身行数内
-        // 一律 idleMaxMs 宽容。触发时除 kill 外必须 destroy stdout——AGY 内部
-        // 工具(浏览器/shell)的进程树可能残留并持有 stdout 写端,只 kill 的
-        // 话 for-await 会永久挂起,子代理假死(实测)。无总时长上限——有
-        // stdout 行就永远续期。
+        // 一律 idleMaxMs 宽容。触发时 killTree 杀进程树并关 readline——AGY
+        // 内部工具(浏览器/shell)的进程树可能残留并持有 stdout 写端,不关
+        // readline 的话 for-await 永久挂起,子代理假死(实测)。
+        // 无总时长上限——有 stdout 行就永远续期。
         const to = {
           ...DEFAULT_AGY_RUN_TIMEOUTS,
           ...this.options.timeouts,
@@ -229,9 +242,16 @@ export class AgyLlmAdapter extends LlmAdapter {
             }
           } catch { /* 已退出 */ }
           try { proc.kill() } catch { /* 已退出 */ }
-          // 进程树残留可能仍持有 stdout 写端,必须同时关流,for-await 才能结束。
+          // readline 只能被 rl.close() 结束:仅 destroy stdout **不会**让
+          // `for await (const line of rl)` 退出(实测),而残留子进程持有 stdout
+          // 写端时也等不到 EOF——少这一步,本回合会永久挂起(用户点停止也没反应)。
+          try { closeLines?.() } catch { /* 已关闭 */ }
+          // 进程树残留可能仍持有 stdout 写端,顺带关流。
           try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
         }
+        // abort 可能早于上面的监听器注册(信号已中止时 addEventListener 不会再触发):
+        // 补一次显式检查,否则进程一旦起来就再没有任何东西能杀它。
+        if (options.signal?.aborted) killTree()
         const hasAliveChildren = (pid: number): Promise<boolean> => new Promise(resolve => {
           execFile('powershell.exe', ['-NoProfile', '-Command',
             `(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}" | Measure-Object).Count`],
@@ -295,10 +315,14 @@ export class AgyLlmAdapter extends LlmAdapter {
             stderrTail = (stderrTail + chunk).slice(-4000)
           })
         }
-        // AGY 主进程退出 → 立即销毁读流:它的工具子进程可能继承 stdout 写端
-        // (实测 run_command 卡死场景),不销毁的话 for-await 会等一个永远不
+        // AGY 主进程退出 → 立即结束读取:它的工具子进程可能继承 stdout 写端
+        // (实测 run_command 卡死场景),不结束的话 for-await 会等一个永远不
         // 来的 EOF,子代理永挂——此时 AGY 的流已无任何意义。
+        proc.on('error', (error: Error) => {
+          spawnError = `agy 进程启动失败: ${error.message}`
+        })
         proc.on('close', () => {
+          try { closeLines?.() } catch { /* 已关闭 */ }
           try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
         })
 
@@ -317,9 +341,10 @@ export class AgyLlmAdapter extends LlmAdapter {
           // latin1 保留原始字节,TextDecoder 流式跨事件恢复完整字符。
           proc.stdout.setEncoding('latin1')
           const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity })
+          closeLines = () => { rl.close() }
           for await (const line of rl) {
             if (options.signal?.aborted) {
-              proc.kill()
+              killTree()
               break
             }
             // 还在出活就续命(stdout 行:采样 + 续命;首包一到撤销首包超时)。
@@ -396,12 +421,23 @@ export class AgyLlmAdapter extends LlmAdapter {
             hasOutput = true
             yield chunk
           }
+          streamDrained = true
         } finally {
           if (firstTimer !== undefined) clearTimeout(firstTimer)
           if (idleTimer !== undefined) clearTimeout(idleTimer)
           options.signal?.removeEventListener('abort', onAbort)
+          // 宿主中止(停止按钮 → turn 取消)会直接关闭本生成器,执行从这里跳出
+          // 而不是走到收尾:不回收的话 agy 进程树会活着占端口,而且此时没有任何
+          // 人再能杀它(abort 监听器已摘除、信号已中止)。
+          if (!streamDrained) {
+            closeLines?.()
+            killTree()
+          }
         }
 
+        // 中止:进程树已由 abort 监听器杀掉,立即收尾——不等退出、不重试、
+        // 不合成错误(宿主会把本回合标记为 interrupted)。
+        if (options.signal?.aborted) return
         const [code] = await closeWithTimeout(proc, options.signal)
         const resultError = translator.resultError
         // stderr 尾巴只作证据附加(含 spawn 失败/工具报错等归因信息)。
@@ -422,7 +458,9 @@ export class AgyLlmAdapter extends LlmAdapter {
             ? 'retryable: agy exited with code 0 but produced no output (transient startup failure)'
             : `retryable: agy exited with code ${code ?? 'null'} but produced no output`)
           : undefined
-        const baseError = resultError ?? stallNote ?? silentEmptyExit
+        // spawn 失败(可执行文件不存在/参数非法)优先于"无输出"归因,且不重试
+        // ——重试同一个坏命令只会白等五个重试间隔。
+        const baseError = resultError ?? stallNote ?? spawnError ?? silentEmptyExit
         const effectiveError = baseError !== undefined ? baseError + stderrNote : undefined
         const retryable = effectiveError !== undefined && RETRYABLE_ERROR_RE.test(effectiveError)
         // 上下文超限:只在 AGY 错误消息明确提到 context/limit/exceed 时才判定。
@@ -474,6 +512,8 @@ export class AgyLlmAdapter extends LlmAdapter {
         // 不重头执行(工具副作用与已输出文本都不会重复)。
         if (retryable && !contextExhausted && attempt < maxAttempts) {
           await new Promise<void>(resolve => {
+            // 已中止的信号不会再触发下面的监听器:先显式放行,别白等一个重试间隔。
+            if (options.signal?.aborted) { resolve(); return }
             const t = setTimeout(resolve, retryDelayMs)
             options.signal?.addEventListener('abort', () => { clearTimeout(t); resolve() }, { once: true })
           })

@@ -130,6 +130,8 @@ export async function runAgyText(options: AgyRunTextOptions): Promise<string> {
 
   let firstTimer: ReturnType<typeof setTimeout> | undefined
   let idleTimer: ReturnType<typeof setTimeout> | undefined
+  /** 结束 readline 的唯一可靠手段(见 fail);创建 rl 后立即赋值。 */
+  let closeLines: (() => void) | undefined
 
   let response: string | undefined
   /** stderr 尾部(错误归因用)。 */
@@ -143,6 +145,9 @@ export async function runAgyText(options: AgyRunTextOptions): Promise<string> {
     if (resultError !== undefined) return
     resultError = reason + stderrNote()
     try { proc.kill() } catch { /* 已退出 */ }
+    // 只 destroy stdout 不会让 `for await (const line of rl)` 退出(实测),
+    // 必须 rl.close():否则残留子进程持有写端时这个读循环永久挂着。
+    try { closeLines?.() } catch { /* 已关闭 */ }
     try { proc.stdout?.destroy() } catch { /* 已关闭 */ }
     finishNow()
   }
@@ -213,6 +218,7 @@ export async function runAgyText(options: AgyRunTextOptions): Promise<string> {
     if (proc.stdout === null) throw new Error('AGY 进程没有 stdout')
     proc.stdout.setEncoding('latin1')
     const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity })
+    closeLines = () => { rl.close() }
     const iterate = async (): Promise<void> => {
       for await (const line of rl) {
         lines += 1
