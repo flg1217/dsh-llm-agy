@@ -17,6 +17,7 @@ import { registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
 import { registerSubagentTool } from './subagent-tool.js'
 import { registerAgyModelsTool } from './models.js'
+import { registerAgyModelsRoute } from './models-route.js'
 import { registerSearchWebAgy } from './search-web-agy.js'
 
 export const name = 'llm-agy'
@@ -93,6 +94,11 @@ export function apply(ctx: Context, config: Config): void {
     get effort(): string { return readSettings().effort || config.effort || 'high' },
     get proxy(): string { return readSettings().proxy || config.proxy || 'http://127.0.0.1:7890' },
   }
+
+  // 设置面板的模型列表路由:插件卡槽位拿不到会话级 remote,发现只能自建
+  // (围栏与 /api 网关行为一致,见 models-route.ts 模块头)。带缓存:agy models
+  // 走网络很慢,刷新期间与失败时都回旧值。
+  ctx.effect(() => registerAgyModelsRoute(ctx, () => ({ command: agyOptions.command, proxy: agyOptions.proxy })))
 
   ctx.llm.registerAdapter(['agy'], new AgyLlmAdapter(ctx, {
     command: agyOptions.command,

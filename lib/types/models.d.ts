@@ -9,6 +9,17 @@
 import type { Context } from '@deepseek-ai/cordis';
 /** 解析 `agy models` 输出,返回模型 id + 名称列表文本。 */
 export declare function listAgyModels(command: string): string;
+/**
+ * 异步查询 `agy models`,返回结构化条目(不阻塞事件循环,供设置面板路由)。
+ * 失败/超时/解析不到时返回空数组。AGY CLI 需要代理出网(与适配器同款 env)。
+ */
+export declare function listAgyModelEntriesAsync(command: string, opts?: {
+    timeoutMs?: number;
+    proxy?: string;
+}): Promise<Array<{
+    id: string;
+    name?: string;
+}>>;
 /** 注册模型查询工具(与 subagent_agy_ui 配套)。 */
 export declare function registerAgyModelsTool(ctx: Context, options: {
     command: string;

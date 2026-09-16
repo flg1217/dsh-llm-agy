@@ -7,9 +7,12 @@
 import { EventEmitter } from 'node:events'
 import type { Readable } from 'node:stream'
 import { Readable as ReadableStream } from 'node:stream'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawn } from 'node:child_process'
-import { agyReadImage } from '../src/read-image.ts'
+import { agyReadImage, agyReadImageAgyTool } from '../src/read-image.ts'
 
 /** mock 子进程:测试不真正 spawn agy;只关心传给它的提示词与解析行为。 */
 vi.mock('node:child_process', async (importOriginal) => {
@@ -87,5 +90,109 @@ describe('agyReadImage:额外看图要求', () => {
       return proc
     })
     await expect(agyReadImage('agy', '', 'a.png')).rejects.toThrow(/模型不可用|调用失败/)
+  })
+})
+
+/** 最小 PNG 文件(只有魔数;saveImage 是 mock,不校验真实像素)。 */
+function pngBytes(): Uint8Array {
+  return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
+}
+
+describe('read_image_agy 工具:UI 呈现附件提交', () => {
+  const ref = {
+    attachmentId: 'sha256:abc', mediaType: 'image/png', bytes: 12, width: 1, height: 1, name: 'fixture.png',
+  }
+  let dir: string
+  let diskPath: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'agy-read-image-spec-'))
+    diskPath = join(dir, 'fixture.png')
+    writeFileSync(diskPath, pngBytes())
+  })
+
+  function makeAttachments(saveImage?: () => Promise<unknown>) {
+    return {
+      imageLimits: { maxImageBytes: 1024 * 1024 },
+      ...(saveImage === undefined ? {} : { saveImage: vi.fn(saveImage) }),
+    }
+  }
+
+  it('读图成功后提交图片到附件存储,值携带 image 引用', async () => {
+    const attachments = makeAttachments(async () => ref)
+    const tool = agyReadImageAgyTool(() => ({ command: 'agy', proxy: '' }), () => attachments)
+    const value = await tool.execute({ file_path: diskPath }, { signal: undefined } as never)
+
+    expect(value.description).toBe('一张表格')
+    expect(value.path).toBe(diskPath)
+    expect(value.image).toEqual(ref)
+    expect(attachments.saveImage).toHaveBeenCalledWith({
+      data: expect.any(Uint8Array), mediaType: 'image/png', name: 'fixture.png',
+    })
+    expect(tool.output.presentationMeta?.({}, value)).toEqual({ path: diskPath, image: ref })
+    // 内容为 [描述信封, 图片块]:图片块供会话附件授权(画廊)+ 会话历史;
+    // 纯文本路由由 LlmRuntime 投影为占位文本,适配器不受影响。
+    expect(tool.output.render({}, value)).toEqual([
+      { type: 'text', text: expect.stringContaining('<path>') },
+      { type: 'image', attachment: ref },
+    ])
+  })
+
+  it('saveImage 失败跳过并落日志:值无 image 字段,工具不报错', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const attachments = makeAttachments(async () => { throw new Error('IMAGE_TOO_LARGE') })
+    const tool = agyReadImageAgyTool(() => ({ command: 'agy', proxy: '' }), () => attachments)
+    const value = await tool.execute({ file_path: diskPath }, { signal: undefined } as never)
+
+    expect(value.description).toBe('一张表格')
+    expect(value.image).toBeUndefined()
+    expect(tool.output.presentationMeta?.({}, value)).toEqual({ path: diskPath })
+    // 无图片引用时内容只有描述信封(无 image block)。
+    expect(tool.output.render({}, value)).toEqual([
+      { type: 'text', text: expect.stringContaining('<path>') },
+    ])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('IMAGE_TOO_LARGE'))
+    warn.mockRestore()
+  })
+
+  it('附件服务未挂载时不提交呈现引用', async () => {
+    const tool = agyReadImageAgyTool(() => ({ command: 'agy', proxy: '' }), () => undefined)
+    const value = await tool.execute({ file_path: diskPath }, { signal: undefined } as never)
+
+    expect(value.description).toBe('一张表格')
+    expect(value.image).toBeUndefined()
+  })
+
+  it('非图片扩展名且魔数不符时不提交', async () => {
+    const textPath = join(dir, 'note.txt')
+    writeFileSync(textPath, Buffer.from('plain text, not an image'))
+    const attachments = makeAttachments(async () => ref)
+    const tool = agyReadImageAgyTool(() => ({ command: 'agy', proxy: '' }), () => attachments)
+    const value = await tool.execute({ file_path: textPath }, { signal: undefined } as never)
+
+    expect(value.description).toBe('一张表格')
+    expect(value.image).toBeUndefined()
+    expect(attachments.saveImage).not.toHaveBeenCalled()
+  })
+
+  it('粘贴附件引用路径:readImage 读字节 → AGY 读图 → 提交呈现引用', async () => {
+    const attachments = makeAttachments(async () => ref)
+    const readImage = vi.fn(async () => ({ data: pngBytes(), mediaType: 'image/png' }))
+    attachments.readImage = readImage
+    const tool = agyReadImageAgyTool(() => ({ command: 'agy', proxy: '' }), () => attachments)
+    const value = await tool.execute({ file_path: 'sha256:abc' }, { signal: undefined } as never)
+
+    expect(readImage).toHaveBeenCalledWith({ attachmentId: 'sha256:abc' }, undefined)
+    expect(value.path).toBe('sha256:abc')
+    expect(value.description).toBe('一张表格')
+    expect(value.image).toEqual(ref)
+    // 呈现引用的 name 由媒体类型推导(附件引用没有文件名)。
+    expect(attachments.saveImage).toHaveBeenCalledWith({
+      data: expect.any(Uint8Array), mediaType: 'image/png', name: 'image.png',
+    })
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
   })
 })
