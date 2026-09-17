@@ -7,6 +7,7 @@
 
 import { execFile, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { basename } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, createToolResultMessage } from '@deepseek-ai/dsh-llm'
@@ -15,6 +16,9 @@ import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import { buildPrompt } from './serialize.js'
 import { AgyTranslator, agyCallId } from './translate.js'
 import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
+import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile } from './tool-preview.js'
+import { commitImagePresentation } from './read-image.js'
+import type { AttachmentsFace } from './read-image.js'
 
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
@@ -28,6 +32,13 @@ export interface AgyAdapterOptions {
   maxAttempts?: number
   /** 启动级失败重试间隔(毫秒)。 */
   retryDelayMs?: number
+  /**
+   * 附件服务 getter(由 index.ts 经 captureAttachments 注入):AGY 的
+   * view_file 读到图片时,把字节提交成附件引用并以 image 内容块入结果
+   * (会话附件授权按内容判定,UI 画廊据此出图;文本模型由 LlmRuntime
+   * 投影为占位文本,不受影响)。
+   */
+  getAttachments?: () => AttachmentsFace | undefined
   /**
    * 兼容旧配置:无输出兜底时长(ms,默认 10 分钟),作为动态空闲阈值的上限。
    * 动态阈值参数见 {@link AgyAdapterOptions.timeouts}。
@@ -332,6 +343,10 @@ export class AgyLlmAdapter extends LlmAdapter {
         const turn = ([...events].reverse().find(e => e.type === 'turn/start')?.data.turn ?? 1) as number
         const step = ([...events].reverse().find(e => e.type === 'step/start')?.data.step ?? 1) as number
         const toolCallSeq = new Map<number, SessionSeq>() // step_index → tool/call seq
+        // 工具参数缓存(ACTIVE 时记,DONE 时可能不再重发)+ 文件变更前的快照
+        // (write_to_file/replace_file_content:ACTIVE 时读,DONE 时对比出 diff)。
+        const stepParams = new Map<number, Record<string, unknown>>()
+        const editSnapshots = new Map<number, string | undefined>()
 
         const translator = new AgyTranslator()
         let hasOutput = false
@@ -370,6 +385,11 @@ export class AgyLlmAdapter extends LlmAdapter {
                   // 会让前端装配器崩掉(received more than one start Match,
                   // 实测毒死整个事件订阅流,子代理窗口全白)。
                   if (stepIndex !== undefined && toolCallSeq.has(stepIndex)) return
+                  if (stepIndex !== undefined && toolParams !== undefined) stepParams.set(stepIndex, toolParams)
+                  // 文件变更类工具:执行前快照目标文件,DONE 时对比出本次改动(diff 补全)。
+                  if (stepIndex !== undefined && AGY_FILE_MUTATION_TOOLS.has(toolName)) {
+                    editSnapshots.set(stepIndex, readFileRaw(agyToolFilePath(toolParams)))
+                  }
                   const ev = session.append('tool/call', {
                     turn,
                     step,
@@ -392,12 +412,44 @@ export class AgyLlmAdapter extends LlmAdapter {
                   const textOut = typeof output === 'string' && output.length > 0
                     ? output
                     : typeof agyStep.toolError === 'string' ? agyStep.toolError : ''
+                  // dsh 化补全:AGY 对文件类工具只回传路径/摘要(view_file)/空结果
+                  // (write/edit),正文与差异都在 AGY 进程内部。适配器按路径自行
+                  // 补全:view_file 附文件头部预览 —— 目标若是图片,则改走图片块
+                  // 通道(提交附件 + image 内容块),UI 画廊出图而不是把二进制当
+                  // 文本;write/edit 附本次改动 diff。补全有界,失败静默。
+                  const params = stepParams.get(stepIndex) ?? toolParams
+                  const filePath = agyToolFilePath(params)
+                  let extra: string | undefined
+                  let imageBlock: { type: 'image'; attachment: unknown } | undefined
+                  if (toolName === 'view_file') {
+                    const image = readImageFile(filePath)
+                    if (image !== undefined) {
+                      const ref = await commitImagePresentation(
+                        this.options.getAttachments?.(), image.data, image.mediaType,
+                        filePath !== undefined ? basename(filePath) : undefined,
+                      )
+                      if (ref !== undefined) imageBlock = { type: 'image', attachment: ref }
+                    } else {
+                      extra = enrichAgyToolResult(toolName, filePath)
+                    }
+                  } else {
+                    extra = enrichAgyToolResult(toolName, filePath, editSnapshots.get(stepIndex))
+                  }
+                  editSnapshots.delete(stepIndex)
+                  const text = extra === undefined
+                    ? textOut
+                    : textOut.length > 0 ? `${textOut}\n\n${extra}` : extra
                   session.append('tool/result', {
                     turn,
                     step,
                     message: createToolResultMessage({
                       callId,
-                      content: [{ type: 'text', text: textOut.slice(0, 2000) }],
+                      content: [
+                        { type: 'text', text: text.slice(0, 12000) },
+                        // 图片块:会话附件授权 + UI 画廊都靠它(引用形状即
+                        // ImageAttachmentRef,品牌类型只在编译期)。
+                        ...imageBlock !== undefined ? [imageBlock] : [],
+                      ] as never,
                       isError: state === 'ERROR',
                     }),
                   }, {

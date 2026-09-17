@@ -14,6 +14,7 @@
  */
 
 import { runAgyText } from './agy-run.js'
+import { IMAGE_MEDIA_BY_EXT, sniffImageMediaType } from './tool-preview.js'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, isAbsolute, join } from 'node:path'
@@ -77,30 +78,10 @@ function extensionOf(mediaType: string): string {
   }
 }
 
-/** 扩展名 → 图片媒体类型(声明用途;真实格式由魔数嗅探兜底)。 */
-const EXT_MEDIA: Readonly<Record<string, string>> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-}
-
-/** 图片魔数嗅探:扩展名缺失或不可信时判定真实格式。 */
-function sniffImageMediaType(data: Uint8Array): string | undefined {
-  if (data.length >= 4 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return 'image/png'
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
-  if (data.length >= 3 && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) return 'image/gif'
-  if (data.length >= 12
-    && data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46
-    && data[8] === 0x57 && data[9] === 0x45 && data[10] === 0x42 && data[11] === 0x50) return 'image/webp'
-  return undefined
-}
-
 /** UI 呈现用的附件引用字段(saveImage 返回的可 JSON 化子集)。 */
 // 用 type 而非 interface:execute 返回值需满足 Record<string, JsonValue>,
 // 类型别名才有隐式索引签名兼容。
-type ImageRefValue = {
+export type ImageRefValue = {
   attachmentId: string
   mediaType: string
   bytes: number
@@ -122,7 +103,7 @@ export interface AttachmentsFace {
  * 模型可见内容不变,仍是纯文本描述——文本模型路由不会被图片块破坏)。
  * 失败跳过不影响读图结果;跳过原因落 console.warn(可在 dsh stderr 日志查)。
  */
-async function commitImagePresentation(
+export async function commitImagePresentation(
   attachments: AttachmentsFace | undefined,
   data: Uint8Array,
   mediaType: string,
@@ -153,7 +134,7 @@ async function diskImagePresentation(attachments: AttachmentsFace | undefined, d
     const stat = statSync(diskPath)
     if (!stat.isFile() || stat.size === 0 || stat.size > cap) return undefined
     const data = new Uint8Array(readFileSync(diskPath))
-    const mediaType = EXT_MEDIA[extname(diskPath).toLowerCase()] ?? sniffImageMediaType(data)
+    const mediaType = IMAGE_MEDIA_BY_EXT[extname(diskPath).toLowerCase()] ?? sniffImageMediaType(data)
     if (mediaType === undefined) return undefined
     return await commitImagePresentation(attachments, data, mediaType, basename(diskPath))
   } catch (error) {
@@ -335,9 +316,14 @@ export function agyReadImageAgyTool(
  * inject 会把服务重注入到本插件作用域;服务缺席时工具照常注册,仅失去
  * 画廊/粘贴引用能力。服务热替换时 holder 跟随更新(回调重跑)。
  */
-export function registerReadImageAgy(ctx: Context, getOptions: () => { command: string; proxy: string }): (() => void) | undefined {
+/**
+ * 捕获附件服务(裸插件 ctx 的 ctx.get 受 cordis 作用域限制拿不到,inject 会把
+ * 服务重注入到本插件作用域;服务缺席/热替换由回调重跑跟随)。
+ * read_image_agy 工具与 AGY 适配器(图片工具结果的画廊提交)共用。
+ * @returns 取当前附件服务的 getter(未挂载时返回 undefined)。
+ */
+export function captureAttachments(ctx: Context): () => AttachmentsFace | undefined {
   const holder: { current?: AttachmentsFace } = {}
-  let disposeInject: (() => void) | undefined
   try {
     const injectable = ctx as unknown as {
       inject?: (deps: string[], fn: (injected: Context) => (() => void) | void) => unknown
@@ -347,22 +333,29 @@ export function registerReadImageAgy(ctx: Context, getOptions: () => { command: 
         holder.current = injected.get('attachments') as AttachmentsFace | undefined
         return () => { holder.current = undefined }
       })
-      // cordis fiber 可等待;挂载异常不应阻断工具注册。
+      // cordis fiber 可等待;挂载异常不应阻断调用方注册。
       if (fiber !== undefined && typeof (fiber as { catch?: unknown })?.catch === 'function') {
         (fiber as Promise<unknown>).catch(() => { /* attachments 缺席:无画廊能力 */ })
       }
-      disposeInject = () => { holder.current = undefined }
     }
   } catch { /* 服务解析失败:仅无画廊能力 */ }
+  return () => holder.current
+}
+
+/** 注册 read_image_agy 工具(全局常驻),返回注销函数。
+ *
+ * 附件服务经 {@link captureAttachments} 捕获;服务缺席时工具照常注册,仅失去
+ * 画廊/粘贴引用能力。
+ */
+export function registerReadImageAgy(ctx: Context, getOptions: () => { command: string; proxy: string }): (() => void) | undefined {
+  const getAttachments = captureAttachments(ctx)
   try {
-    const disposeTool = ctx.tools.register(agyReadImageAgyTool(getOptions, () => holder.current))
+    const disposeTool = ctx.tools.register(agyReadImageAgyTool(getOptions, getAttachments))
     return () => {
       try { disposeTool?.() } catch { /* 已注销 */ }
-      disposeInject?.()
     }
   } catch {
     /* 已注册则跳过 */
-    disposeInject?.()
     return undefined
   }
 }

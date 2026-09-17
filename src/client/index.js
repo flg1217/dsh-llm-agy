@@ -15,7 +15,8 @@ window.__ModuleLoader__.load({
     const {
       Button, Input, Modal, IconLoadingOutline16, IconCheckOutline16, IconRefreshOutline16,
       IconCopyOutline16, IconChevronDownOutline14, writeClipboard,
-      DisclosureRow, StateDot, IconBrowseOutline16,
+      DisclosureRow, StateDot, IconBrowseOutline16, IconApiOutline14, IconEditOutline16,
+      IconSearchOutline16, IconGlobeOutline14,
     } = P
 
     // ── 官方 PluginCard CSS(与 ui-settings-plugins 完全一致) ──
@@ -60,6 +61,8 @@ window.__ModuleLoader__.load({
       tvBody: '.dshAgy_tvBody{display:flex;flex-direction:column;gap:4px;margin:4px 0 4px 4px}',
       tvImg: '.dshAgy_tvImg{max-width:100%;max-height:320px;width:auto;border-radius:8px;border:0.5px solid var(--dsw-alias-border-l1);align-self:flex-start}',
       tvDesc: '.dshAgy_tvDesc{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary)}',
+      // 文件类行的正文(读取预览/diff):等宽代码块样式,限高滚动
+      tvCode: '.dshAgy_tvCode{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-markdown-code-block);border:.5px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px 10px;max-height:300px;overflow:auto}',
     }
     const cssText = Object.values(CSS).join('')
     const tagId = '@flg1217/llm-agy/plugin-card.css'
@@ -84,7 +87,7 @@ window.__ModuleLoader__.load({
       tvTitle: 'dshAgy_tvTitle', tvChevron: 'dshAgy_tvChevron', tvSep: 'dshAgy_tvSep',
       tvSummary: 'dshAgy_tvSummary', tvErrorSummary: 'dshAgy_tvErrorSummary',
       tvFileLink: 'dshAgy_tvFileLink', tvBody: 'dshAgy_tvBody',
-      tvImg: 'dshAgy_tvImg', tvDesc: 'dshAgy_tvDesc',
+      tvImg: 'dshAgy_tvImg', tvDesc: 'dshAgy_tvDesc', tvCode: 'dshAgy_tvCode',
     }
 
     // 多系统安装命令 + 工具说明
@@ -520,79 +523,149 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function AgyReadImageRow(props) {
-      const { block, cwd, home, openFile, loadImage, t } = props
-      const settled = 'kind' in block
-      const state = blockStateOf(block)
-      const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''
-      let filePath
-      try {
-        const a = JSON.parse(argsRaw)
-        if (typeof a?.file_path === 'string' && a.file_path.trim() !== '') filePath = a.file_path
-      } catch { /* 参数未就绪或截断 */ }
-      const meta = settled && typeof block.meta === 'object' && block.meta !== null ? block.meta : undefined
-      const image = meta?.image !== undefined && typeof meta.image === 'object' ? meta.image : undefined
-      const metaPath = typeof meta?.path === 'string' && meta.path !== '' ? meta.path : undefined
-      const displayPath = metaPath ?? filePath ?? ''
-      // 结果文本:文本块原文拼接后剥信封(成功为描述;失败为错误信息)
-      const output = settled && Array.isArray(block.content)
-        ? block.content
-            .filter((b) => b?.type === 'text' && typeof b.text === 'string')
-            .map((b) => b.text)
-            .join('\n') || null
-        : null
-      const shownOutput = output !== null ? displayText(output) : null
-      // 失败行的折叠摘要:content 有文本用首行;空 content 回退错误码
-      // (对齐原生 ToolRow 的 resultText 空回退 error.name: error.code)。
-      const failureLine = state === 'error'
-        ? (shownOutput !== null && shownOutput !== '' ? firstLine(shownOutput) : `${block.error?.name ?? 'Error'}: ${block.error?.code ?? 'unknown'}`)
-        : null
-      const summary = displayPath !== '' ? abbreviatePath(displayPath, cwd, home) : 'read_image_agy'
-      const expandable = shownOutput !== null || image !== undefined
-      const [open, setOpen] = react.useState(false)
-      const showBody = open && expandable
-      const leading = state === 'error'
-        ? react.createElement(StateDot, { state: 'error' })
-        : state === 'stopped'
-          ? react.createElement(StateDot, { state: 'warning' })
-          : react.createElement(IconBrowseOutline16, { size: 14 })
-      const collapsed = failureLine !== null
-        ? react.createElement('span', { className: C.tvSummary + ' ' + C.tvErrorSummary }, failureLine)
-        : displayPath === ''
-          ? null
-          : [
-              react.createElement('span', { key: 'sep', className: C.tvSep, 'aria-hidden': true }),
-              typeof openFile === 'function' && state === 'ok'
-                ? react.createElement('button', {
-                    key: 'path', type: 'button', className: C.tvFileLink,
-                    onClick: (e) => { e.stopPropagation(); openFile(displayPath) },
-                  }, summary)
-                : react.createElement('span', { key: 'path', className: C.tvSummary }, summary),
-            ]
-      return react.createElement('div', {
-        className: C.tvRoot, 'data-state': state,
-      },
-        react.createElement(DisclosureRow, {
-          icon: leading,
-          title: typeof t === 'function' ? t('tool.title.readImage') : '读取图片',
-          open: showBody,
-          expandable,
-          expandOnRowClick: true,
-          keepContentWhenOpen: true,
-          onToggle: () => setOpen((v) => !v),
-          rowClassName: C.tvRow,
-          leadingClassName: C.tvLeading,
-          titleClassName: C.tvTitle,
-          chevronClassName: C.tvChevron,
-          collapsedContent: collapsed,
+    /**
+     * 构造 AGY 工具卡片行(工厂):行 chrome 与 read_image_agy 一致,差异全在 spec。
+     *
+     * spec 字段:
+     * - title:conversation 命名空间的标题键;fallbackTitle:t 不可用时的兜底标题;
+     * - icon:图标家族(read/bash/write/edit/search/globe);
+     * - keys:摘要取值键(按序取第一个非空字符串参数);
+     * - path:摘要是否为文件/目录路径(路径可点击打开,并做主目录/工作区缩写);
+     * - mono:正文用等宽代码块样式(文件预览/diff);
+     * - metaPath/metaImage:从结果 presentationMeta 取路径/图片(read_image_agy 用);
+     * - gallery:展开时渲染图片画廊(需 metaImage)。
+     */
+    function makeAgyToolRow(spec) {
+      return function AgyToolRow(props) {
+        const { block, cwd, home, openFile, loadImage, t } = props
+        const settled = 'kind' in block
+        const state = blockStateOf(block)
+        const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''
+        let args = {}
+        try {
+          const a = JSON.parse(argsRaw)
+          if (a !== null && typeof a === 'object' && !Array.isArray(a)) args = a
+        } catch { /* 参数未就绪或截断 */ }
+        const meta = settled && typeof block.meta === 'object' && block.meta !== null ? block.meta : undefined
+        // 图片引用双通道:presentationMeta(read_image_agy)或结果内容里的 image
+        // 块(AGY 适配器对 view_file 读到图片时写入——会话附件授权按内容判定)。
+        const contentImage = settled && Array.isArray(block.content)
+          ? block.content.find((b) => b?.type === 'image' && typeof b?.attachment === 'object' && b?.attachment !== null)?.attachment
+          : undefined
+        const image = spec.gallery === true ? (meta?.image ?? contentImage) : undefined
+        const metaPath = spec.metaPath === true && typeof meta?.path === 'string' && meta.path !== '' ? meta.path : undefined
+        // 摘要:按 spec.keys 取第一个非空字符串;全部落空时退回第一个字符串参数。
+        let raw = ''
+        for (const key of spec.keys ?? []) {
+          const v = args[key]
+          if (typeof v === 'string' && v.trim() !== '') { raw = v; break }
+        }
+        if (raw === '') {
+          for (const v of Object.values(args)) {
+            if (typeof v === 'string' && v.trim() !== '') { raw = v; break }
+          }
+        }
+        const rawPath = metaPath ?? (spec.path === true && raw !== '' ? raw : undefined)
+        const displayPath = rawPath ?? ''
+        const summary = displayPath !== ''
+          ? abbreviatePath(displayPath, cwd, home)
+          : firstLine(raw)
+        // 结果文本:文本块原文拼接(AGY 工具输出为纯文本;信封剥壳对它是无操作)。
+        const output = settled && Array.isArray(block.content)
+          ? block.content
+              .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+              .map((b) => b.text)
+              .join('\n') || null
+          : null
+        const shownOutput = output !== null ? displayText(output) : null
+        // 失败行的折叠摘要:content 有文本用首行;空 content 回退错误码
+        // (对齐原生 ToolRow 的 resultText 空回退 error.name: error.code)。
+        const failureLine = state === 'error'
+          ? (shownOutput !== null && shownOutput !== '' ? firstLine(shownOutput) : `${block.error?.name ?? 'Error'}: ${block.error?.code ?? 'unknown'}`)
+          : null
+        const expandable = shownOutput !== null || image !== undefined
+        const [open, setOpen] = react.useState(false)
+        const showBody = open && expandable
+        const leading = state === 'error'
+          ? react.createElement(StateDot, { state: 'error' })
+          : state === 'stopped'
+            ? react.createElement(StateDot, { state: 'warning' })
+            : AGY_TOOL_ICONS[spec.icon ?? 'read']()
+        const collapsed = failureLine !== null
+          ? react.createElement('span', { className: C.tvSummary + ' ' + C.tvErrorSummary }, failureLine)
+          : summary === ''
+            ? null
+            : [
+                react.createElement('span', { key: 'sep', className: C.tvSep, 'aria-hidden': true }),
+                displayPath !== '' && typeof openFile === 'function' && state === 'ok'
+                  ? react.createElement('button', {
+                      key: 'path', type: 'button', className: C.tvFileLink,
+                      onClick: (e) => { e.stopPropagation(); openFile(displayPath) },
+                    }, summary)
+                  : react.createElement('span', { key: 'path', className: C.tvSummary }, summary),
+              ]
+        return react.createElement('div', {
+          className: C.tvRoot, 'data-state': state,
         },
+          react.createElement(DisclosureRow, {
+            icon: leading,
+            title: typeof t === 'function' ? t(spec.title) : (spec.fallbackTitle ?? ''),
+            open: showBody,
+            expandable,
+            expandOnRowClick: true,
+            keepContentWhenOpen: true,
+            onToggle: () => setOpen((v) => !v),
+            rowClassName: C.tvRow,
+            leadingClassName: C.tvLeading,
+            titleClassName: C.tvTitle,
+            chevronClassName: C.tvChevron,
+            collapsedContent: collapsed,
+          },
           showBody && react.createElement('div', { className: C.tvBody },
             image !== undefined && react.createElement(AgyImageGallery, { image, loadImage }),
-            shownOutput !== null && shownOutput !== '' && react.createElement('div', { className: C.tvDesc }, shownOutput),
+            shownOutput !== null && shownOutput !== '' && react.createElement('div', {
+              className: spec.mono === true ? C.tvCode : C.tvDesc,
+            }, shownOutput),
           ),
-        ),
-      )
+          ),
+        )
+      }
     }
+
+    /** 家族图标(与原生 GenericToolCard 的 VARIANT_ICONS 同款)。 */
+    const AGY_TOOL_ICONS = {
+      read: () => react.createElement(IconBrowseOutline16, { size: 14 }),
+      bash: () => react.createElement(IconApiOutline14, { size: 14 }),
+      write: () => react.createElement(IconEditOutline16, { size: 14 }),
+      edit: () => react.createElement(IconEditOutline16, { size: 14 }),
+      search: () => react.createElement(IconSearchOutline16, { size: 14 }),
+      globe: () => react.createElement(IconGlobeOutline14, { size: 14 }),
+    }
+
+    /**
+     * AGY(子代理)内部工具 → dsh 家族卡片映射。
+     *
+     * agy CLI 自己执行工具(浏览器/命令/文件),其 step 以 AGY 原名进会话时间线;
+     * tool.call.toolview 键域开放,这里按 AGY 原名注册 dsh 同族的行呈现
+     * (图标/标题/路径链接/展开输出)——会话日志保留真实工具名,不做重写。
+     * 参数键是 AGY 的 PascalCase 口径(sessions 全量统计出的 13 种工具里的可映射子集)。
+     */
+    const AGY_TOOL_FAMILIES = {
+      view_file: { title: 'tool.title.read', fallbackTitle: '读取文件', icon: 'read', keys: ['AbsolutePath', 'file_path'], path: true, mono: true, gallery: true },
+      run_command: { title: 'tool.title.bash', fallbackTitle: '运行命令', icon: 'bash', keys: ['CommandLine', 'command'] },
+      write_to_file: { title: 'tool.title.write', fallbackTitle: '写入文件', icon: 'write', keys: ['TargetFile', 'file_path'], path: true, mono: true },
+      replace_file_content: { title: 'tool.title.edit', fallbackTitle: '编辑文件', icon: 'edit', keys: ['TargetFile', 'file_path'], path: true, mono: true },
+      grep_search: { title: 'tool.title.grep', fallbackTitle: '内容搜索', icon: 'search', keys: ['Query', 'SearchPath'] },
+      find_by_name: { title: 'tool.title.glob', fallbackTitle: '按名查找', icon: 'search', keys: ['Pattern', 'SearchDirectory'] },
+      list_dir: { title: 'tool.title.read', fallbackTitle: '列目录', icon: 'read', keys: ['DirectoryPath'], path: true },
+      read_url_content: { title: 'tool.title.webFetch', fallbackTitle: '网页获取', icon: 'globe', keys: ['Url'] },
+      search_web: { title: 'tool.title.webSearch', fallbackTitle: '网页搜索', icon: 'search', keys: ['query'] },
+    }
+    /** read_image_agy 行:读取图片家族 + 展开图片画廊(引用来自 presentationMeta)。 */
+    const AgyReadImageRow = makeAgyToolRow({
+      title: 'tool.title.readImage', fallbackTitle: '读取图片', icon: 'read',
+      keys: ['file_path'], path: true, metaPath: true, metaImage: true, gallery: true,
+    })
 
     function apply(ctx) {
       const agyScope = ctx.settingsScope.bind({ namespace: 'agy' })
@@ -624,6 +697,21 @@ window.__ModuleLoader__.load({
           }, AgyReadImageRow)
         })
       }, 'llm-agy-client: read_image_agy toolview')
+      // AGY 内部工具(view_file/run_command/...)按原名注册 dsh 家族行:
+      // 子代理时间线里这些工具不再落通用"工具调用"行,而是与 dsh 原生工具同款
+      // (图标/标题/可打开路径/展开输出)。未映射的工具照旧走通用行。
+      for (const [toolName, spec] of Object.entries(AGY_TOOL_FAMILIES)) {
+        const Row = makeAgyToolRow(spec)
+        ctx.effect(() => {
+          return ctx.slots.inject('tool.call.toolview', () => {
+            return ctx.slots.register({
+              name: 'tool.call.toolview',
+              key: toolName,
+              locale: 'conversation',
+            }, Row)
+          })
+        }, `llm-agy-client: ${toolName} toolview`)
+      }
     }
 
 

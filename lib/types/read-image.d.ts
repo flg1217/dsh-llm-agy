@@ -28,7 +28,7 @@ import type { Context } from '@deepseek-ai/cordis';
  */
 export declare function agyReadImage(command: string, proxy: string, filePath: string, extra?: string, signal?: AbortSignal): Promise<string>;
 /** UI 呈现用的附件引用字段(saveImage 返回的可 JSON 化子集)。 */
-type ImageRefValue = {
+export type ImageRefValue = {
     attachmentId: string;
     mediaType: string;
     bytes: number;
@@ -55,6 +55,12 @@ export interface AttachmentsFace {
         maxImageBytes?: number;
     };
 }
+/**
+ * 把图片字节提交到附件存储,供工具卡片渲染图片画廊(纯 UI 呈现:
+ * 模型可见内容不变,仍是纯文本描述——文本模型路由不会被图片块破坏)。
+ * 失败跳过不影响读图结果;跳过原因落 console.warn(可在 dsh stderr 日志查)。
+ */
+export declare function commitImagePresentation(attachments: AttachmentsFace | undefined, data: Uint8Array, mediaType: string, name?: string): Promise<ImageRefValue | undefined>;
 /** 生成 `read_image_agy` 工具定义(全局常驻,独立命名)。
  * @param getOptions - 读当前生效的 AGY 命令与代理。
  * @param getAttachments - 取附件服务(呈现/粘贴引用路径用);未注入或未挂载时
@@ -71,8 +77,19 @@ export declare function agyReadImageAgyTool(getOptions: () => {
  * inject 会把服务重注入到本插件作用域;服务缺席时工具照常注册,仅失去
  * 画廊/粘贴引用能力。服务热替换时 holder 跟随更新(回调重跑)。
  */
+/**
+ * 捕获附件服务(裸插件 ctx 的 ctx.get 受 cordis 作用域限制拿不到,inject 会把
+ * 服务重注入到本插件作用域;服务缺席/热替换由回调重跑跟随)。
+ * read_image_agy 工具与 AGY 适配器(图片工具结果的画廊提交)共用。
+ * @returns 取当前附件服务的 getter(未挂载时返回 undefined)。
+ */
+export declare function captureAttachments(ctx: Context): () => AttachmentsFace | undefined;
+/** 注册 read_image_agy 工具(全局常驻),返回注销函数。
+ *
+ * 附件服务经 {@link captureAttachments} 捕获;服务缺席时工具照常注册,仅失去
+ * 画廊/粘贴引用能力。
+ */
 export declare function registerReadImageAgy(ctx: Context, getOptions: () => {
     command: string;
     proxy: string;
 }): (() => void) | undefined;
-export {};

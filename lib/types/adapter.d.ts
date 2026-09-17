@@ -7,6 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
+import type { AttachmentsFace } from './read-image.js';
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
     command: string;
@@ -19,6 +20,13 @@ export interface AgyAdapterOptions {
     maxAttempts?: number;
     /** 启动级失败重试间隔(毫秒)。 */
     retryDelayMs?: number;
+    /**
+     * 附件服务 getter(由 index.ts 经 captureAttachments 注入):AGY 的
+     * view_file 读到图片时,把字节提交成附件引用并以 image 内容块入结果
+     * (会话附件授权按内容判定,UI 画廊据此出图;文本模型由 LlmRuntime
+     * 投影为占位文本,不受影响)。
+     */
+    getAttachments?: () => AttachmentsFace | undefined;
     /**
      * 兼容旧配置:无输出兜底时长(ms,默认 10 分钟),作为动态空闲阈值的上限。
      * 动态阈值参数见 {@link AgyAdapterOptions.timeouts}。

@@ -13,7 +13,7 @@ import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { registerAgySearchTool } from './search-tool.js'
 import { readImageAgyEnabled, registerAgySettings, searchOverrideEnabled } from './settings.js'
 import { installImageRelay, isImageCapableRoute } from './image-paste.js'
-import { registerReadImageAgy } from './read-image.js'
+import { captureAttachments, registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
 import { registerSubagentTool } from './subagent-tool.js'
 import { registerAgyModelsTool } from './models.js'
@@ -106,6 +106,9 @@ export function apply(ctx: Context, config: Config): void {
     effort: agyOptions.effort,
     extraArgs: config.extraArgs ?? [],
     proxy: agyOptions.proxy,
+    // view_file 读到图片时走图片块通道(附件提交 + 画廊授权),与
+    // read_image_agy 共用同一捕获的服务。
+    getAttachments: captureAttachments(ctx),
   }))
   // 子代理委派工具:前端/UI 设计(subagent_agy_ui,continuable 可复用长线会话),
   // 由 AGY/Gemini 驱动;看图不委派子代理(用全局 read_image_agy)。
