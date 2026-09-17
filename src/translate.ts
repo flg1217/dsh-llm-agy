@@ -62,13 +62,19 @@ export function parseAgyLine(line: string): AgyLine | undefined {
   try {
     const evt = JSON.parse(line) as {
       event?: string
+      conversation_id?: string
       init?: { conversation_id?: string }
       step_update?: AgyEvent['step_update']
       result?: { status?: string; response?: unknown; error?: unknown }
     }
     // init 事件:提供 conversation_id,重试时用 --conversation 恢复同一会话续跑。
+    // agy 1.2.x puts conversation_id at the TOP LEVEL of the init event
+    // (verified against agy 1.2.0/1.2.2 real output:
+    //   {"event":"init","conversation_id":"<uuid>","init":{...}}
+    // where init.conversation_id is an empty string). Older builds nested it
+    // under init, so read the top-level field first and fall back.
     if (evt.event === 'init') {
-      const cid = evt.init?.conversation_id
+      const cid = evt.conversation_id ?? evt.init?.conversation_id
       return typeof cid === 'string' && cid.length > 0 ? { conversationId: cid } : undefined
     }
     const su = evt.step_update

@@ -39,6 +39,30 @@ describe('parseAgyLine result 终局判定', () => {
   })
 })
 
+describe('parseAgyLine init 会话捕获', () => {
+  it('agy 1.2.x: conversation_id 在事件顶层(init.conversation_id 为空串)', () => {
+    const parsed = parseAgyLine(JSON.stringify({
+      event: 'init',
+      conversation_id: '4d5813d9-7801-473d-a27a-c9ed872acde2',
+      init: { cwd: 'E:\\proj', tools: [], conversation_id: '' },
+    }))
+    expect(parsed).toEqual({ conversationId: '4d5813d9-7801-473d-a27a-c9ed872acde2' })
+  })
+
+  it('旧版 CLI: conversation_id 嵌在 init 内,顶层缺省时回落读取', () => {
+    const parsed = parseAgyLine(JSON.stringify({
+      event: 'init',
+      init: { cwd: 'E:\\proj', tools: [], conversation_id: 'legacy-uuid' },
+    }))
+    expect(parsed).toEqual({ conversationId: 'legacy-uuid' })
+  })
+
+  it('两处都缺 conversation_id 时不产出会话事件', () => {
+    const parsed = parseAgyLine(JSON.stringify({ event: 'init', init: { cwd: 'E:\\proj' } }))
+    expect(parsed).toBeUndefined()
+  })
+})
+
 describe('AgyTranslator 终局收尾', () => {
   it('流中断提示后 end() 产出正常 finish,不报执行失败', () => {
     const t = new AgyTranslator()
