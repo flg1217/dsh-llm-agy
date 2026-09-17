@@ -10,41 +10,41 @@ importers:
     dependencies:
       '@deepseek-ai/dsh-host-webserver':
         specifier: '>=0.1.0-rc.6'
-        version: 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))
+        version: 0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis))
       '@deepseek-ai/schemastery':
         specifier: ^3.0.0
         version: 3.18.1
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: link:D:/Projects/DeepseekHarness/repo/vendor/cordis
-        version: link:../../repo/vendor/cordis
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/vendor/cordis
+        version: link:../deepseek-harness/vendor/cordis
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: ^0.1.0-rc.6
-        version: 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))
+        version: 0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis))
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: ^0.1.0-rc.6
-        version: 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))
+        version: 0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis))
       '@deepseek-ai/dsh-llm':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/llm/llm
-        version: link:../../repo/packages/llm/llm
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/llm/llm
+        version: link:../deepseek-harness/packages/llm/llm
       '@deepseek-ai/dsh-session':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/core/session
-        version: link:../../repo/packages/core/session
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/core/session
+        version: link:../deepseek-harness/packages/core/session
       '@deepseek-ai/dsh-settings':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/settings/settings
-        version: link:../../repo/packages/settings/settings
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/settings/settings
+        version: link:../deepseek-harness/packages/settings/settings
       '@deepseek-ai/dsh-subagent':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/subagent/subagent
-        version: link:../../repo/packages/subagent/subagent
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/subagent/subagent
+        version: link:../deepseek-harness/packages/subagent/subagent
       '@deepseek-ai/dsh-tools':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/core/tools
-        version: link:../../repo/packages/core/tools
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/core/tools
+        version: link:../deepseek-harness/packages/core/tools
       '@deepseek-ai/dsh-util-values':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/util/values
-        version: link:../../repo/packages/util/values
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/util/values
+        version: link:../deepseek-harness/packages/util/values
       '@deepseek-ai/dsh-web':
-        specifier: link:D:/Projects/DeepseekHarness/repo/packages/web/web
-        version: link:../../repo/packages/web/web
+        specifier: link:h:/Projects/DeepseekHarness/deepseek-harness/packages/web/web
+        version: link:../deepseek-harness/packages/web/web
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
@@ -986,10 +986,10 @@ snapshots:
 
   '@deepseek-ai/cosmokit@1.8.2': {}
 
-  '@deepseek-ai/dsh-client-ui-primitives@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))':
+  '@deepseek-ai/dsh-client-ui-primitives@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis))':
     dependencies:
-      '@deepseek-ai/cordis': link:../../repo/vendor/cordis
-      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)
+      '@deepseek-ai/cordis': link:../deepseek-harness/vendor/cordis
+      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)
       '@shikijs/langs': 4.4.3
       '@types/mdast': 4.0.4
       anser: 2.3.5
@@ -1013,20 +1013,20 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@deepseek-ai/dsh-client-ui-slots@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))':
+  '@deepseek-ai/dsh-client-ui-slots@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis))':
     dependencies:
-      '@deepseek-ai/cordis': link:../../repo/vendor/cordis
-      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)
+      '@deepseek-ai/cordis': link:../deepseek-harness/vendor/cordis
+      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)
 
-  '@deepseek-ai/dsh-host-webserver@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis))':
+  '@deepseek-ai/dsh-host-webserver@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis))':
     dependencies:
-      '@deepseek-ai/cordis': link:../../repo/vendor/cordis
-      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)
+      '@deepseek-ai/cordis': link:../deepseek-harness/vendor/cordis
+      '@deepseek-ai/dsh-invariants': 0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)
       '@deepseek-ai/schemastery': 3.18.1
 
-  '@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@..+repo+vendor+cordis)':
+  '@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@deepseek-harness+vendor+cordis)':
     dependencies:
-      '@deepseek-ai/cordis': link:../../repo/vendor/cordis
+      '@deepseek-ai/cordis': link:../deepseek-harness/vendor/cordis
       '@deepseek-ai/schemastery': 3.18.1
 
   '@deepseek-ai/schemastery@3.18.1':

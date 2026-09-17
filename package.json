@@ -44,20 +44,20 @@
     "@deepseek-ai/schemastery": "^3.0.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "link:D:/Projects/DeepseekHarness/repo/vendor/cordis",
+    "@deepseek-ai/cordis": "link:h:/Projects/DeepseekHarness/deepseek-harness/vendor/cordis",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@types/node": "^22.0.0",
     "@types/react": "~18.3.1",
     "typescript": "~5.7.2",
     "vitest": "^3.0.5",
-    "@deepseek-ai/dsh-llm": "link:D:/Projects/DeepseekHarness/repo/packages/llm/llm",
-    "@deepseek-ai/dsh-settings": "link:D:/Projects/DeepseekHarness/repo/packages/settings/settings",
-    "@deepseek-ai/dsh-tools": "link:D:/Projects/DeepseekHarness/repo/packages/core/tools",
-    "@deepseek-ai/dsh-subagent": "link:D:/Projects/DeepseekHarness/repo/packages/subagent/subagent",
-    "@deepseek-ai/dsh-util-values": "link:D:/Projects/DeepseekHarness/repo/packages/util/values",
-    "@deepseek-ai/dsh-session": "link:D:/Projects/DeepseekHarness/repo/packages/core/session",
-    "@deepseek-ai/dsh-web": "link:D:/Projects/DeepseekHarness/repo/packages/web/web"
+    "@deepseek-ai/dsh-llm": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-settings": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/settings/settings",
+    "@deepseek-ai/dsh-tools": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-subagent": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/subagent/subagent",
+    "@deepseek-ai/dsh-util-values": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/util/values",
+    "@deepseek-ai/dsh-session": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-web": "link:h:/Projects/DeepseekHarness/deepseek-harness/packages/web/web"
   },
   "files": [
     "lib",
