@@ -8,3 +8,9 @@ dist/
 
 # 插件运行产物:粘贴图片落盘目录
 .dsh-llm-agy/
+
+# 本地开发钩子:把 @deepseek-ai/* 解析到工作区源码(含本地路径,不要提交)
+.pnpmfile.cjs
+
+# lockfile 会记录本地 link: 路径,不发布(用 git 发布,消费方不需要它)
+pnpm-lock.yaml
