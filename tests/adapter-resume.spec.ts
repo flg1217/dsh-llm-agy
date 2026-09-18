@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { AgyLlmAdapter } from '../src/adapter.ts'
+import { ConversationStore } from '../src/conversations.ts'
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
@@ -60,7 +61,7 @@ const okLines = (cid: string): string[] => [
 
 const ctx = { get: (): undefined => undefined } as unknown as Context
 
-function makeAdapter(): AgyLlmAdapter {
+function makeAdapter(overrides?: Record<string, unknown>): AgyLlmAdapter {
   return new AgyLlmAdapter(ctx, {
     command: 'agy',
     model: 'gemini-3.1-pro-high',
@@ -68,6 +69,9 @@ function makeAdapter(): AgyLlmAdapter {
     extraArgs: [],
     maxAttempts: 3,
     retryDelayMs: 50,
+    // 纯内存续接记录:测试不落盘,也不读真实 ~/.dsh/agy/conversations.json。
+    store: new ConversationStore(null),
+    ...overrides,
   })
 }
 
@@ -229,6 +233,31 @@ describe('AgyLlmAdapter:续跑增量补发(--conversation 记忆)', () => {
       expect(prompt).toContain('第三问')
       expect(prompt).not.toContain('第二问')
     }
+  })
+
+  it('跨重启恢复:换 adapter 实例(同一持久层)续跑仍带 --conversation 发增量', async () => {
+    // 现场(2026-09-18):续接记录曾只存内存 Map,服务重启即丢——对已有会话的
+    // 首次续跑退化成全量重发(历史 1.2MB,AGY 先读巨型 agy-task 文件再干活)。
+    const store = new ConversationStore(null)
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    const before = makeAdapter({ store })
+    await collect(before.stream(opts('s1', [msg('m1', 'user', '第一问')])))
+
+    // “重启”:新 adapter 实例,共享同一持久层(真实场景由文件重载)。
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    const after = makeAdapter({ store })
+    await collect(after.stream(opts('s1', [
+      msg('m1', 'user', '第一问'),
+      msg('m2', 'assistant', '第一答'),
+      msg('m3', 'user', '第二问'),
+    ])))
+
+    const args = argsOf(1)
+    expect(args[args.indexOf('--conversation') + 1]).toBe('c1')
+    const prompt = args[args.indexOf('-p') + 1]
+    expect(prompt).toContain('第二问')
+    expect(prompt).not.toContain('第一问')
+    expect(prompt).not.toContain('第一答')
   })
 
   it('首轮失败:不写记录,下次仍发全量(不是增量,不静默吞消息)', async () => {

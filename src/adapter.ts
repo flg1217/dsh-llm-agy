@@ -14,6 +14,7 @@ import { LlmAdapter, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import { buildPrompt, continuationPrompt, resumeReplayPrompt } from './serialize.js'
+import { ConversationStore } from './conversations.js'
 import { AgyTranslator, agyCallId } from './translate.js'
 import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
 import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile } from './tool-preview.js'
@@ -56,6 +57,12 @@ export interface AgyAdapterOptions {
     idleFactor?: number
     idleWarmupLines?: number
   }
+  /**
+   * 续接记录的存储(默认落盘 `~/.dsh/agy/conversations.json`;测试注入
+   * 纯内存实例)。跨重启保留 conversationId 与发送锚点——否则重启后首个
+   * 续跑会退化成全量重发(实测历史可达 1.2MB)。
+   */
+  store?: ConversationStore
 }
 
 /**
@@ -86,9 +93,6 @@ function killProcessTree(proc: ChildProcess): void {
  */
 const CONVERSATION_LOST_RE
   = /(no such|not found|unknown|invalid|expired|does not exist|missing)[^\n]{0,60}conversation|conversation[^\n]{0,60}(not found|does not exist|expired|invalid|unknown|missing)/i
-
-/** 跨轮 conversation 记忆条目上限(Map 无限增长会泄漏;超限淘汰最旧)。 */
-const CONVERSATIONS_MAX = 500
 
 /**
  * 等 AGY 进程退出:已退出直接给退出码;否则最多等 timeoutMs(到点杀进程树)。
@@ -122,18 +126,7 @@ async function closeWithTimeout(
   })
 }
 
-/**
- * dsh 会话 ↔ AGY conversation 的续接记录(抄 dsh-subagent-codebuddy 的
- * ConversationState 结构):主锚是消息 id,数量锚仅兼容历史记录。
- */
-interface AgyConversationState {
-  /** AGY 服务端会话 id(--conversation 恢复用)。 */
-  conversationId: string
-  /** 旧数量锚:上次发送时 dsh 消息总数。 */
-  sentCount: number
-  /** 主锚:上次发送覆盖到的最后一条 dsh 消息 id。 */
-  lastSentMessageId?: string
-}
+/** 跨轮 conversation 记忆条目上限由 ConversationStore 管理(LRU + 持久化)。 */
 
 /**
  * AGY 模型适配器。stream() 每次调用:
@@ -141,25 +134,15 @@ interface AgyConversationState {
  * 工具步骤落地为会话事件 → usage/finish 收尾。
  */
 export class AgyLlmAdapter extends LlmAdapter {
-  /** dsh sessionId → 续接记录(跨轮记忆,续跑只补发 AGY 尚未见过的增量)。 */
-  private readonly conversations = new Map<string, AgyConversationState>()
+  /** dsh sessionId → 续接记录(持久化,续跑只补发 AGY 尚未见过的增量)。 */
+  private readonly conversations: ConversationStore
 
   constructor(
     private readonly ctx: Context,
     private readonly options: AgyAdapterOptions,
   ) {
     super()
-  }
-
-  /** 记忆 dsh 会话的续接记录;超限淘汰最旧(Map 迭代序即插入序)。 */
-  private rememberConversation(sessionId: string, state: AgyConversationState): void {
-    this.conversations.delete(sessionId)
-    this.conversations.set(sessionId, state)
-    while (this.conversations.size > CONVERSATIONS_MAX) {
-      const oldest = this.conversations.keys().next().value
-      if (oldest === undefined) break
-      this.conversations.delete(oldest)
-    }
+    this.conversations = options.store ?? new ConversationStore()
   }
 
   /**
@@ -621,7 +604,7 @@ export class AgyLlmAdapter extends LlmAdapter {
           // 不可丢失(锚点过早写入会让进程死后的窗口丢消息,实测教训)。
           if (sessionId !== undefined && conversationId !== undefined) {
             const latest = options.messages.length === 0 ? undefined : options.messages[options.messages.length - 1]!
-            this.rememberConversation(sessionId, {
+            this.conversations.set(sessionId, {
               conversationId,
               sentCount: options.messages.length,
               ...(latest === undefined ? {} : { lastSentMessageId: String(latest.id) }),

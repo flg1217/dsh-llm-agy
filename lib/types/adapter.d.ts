@@ -7,6 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
+import { ConversationStore } from './conversations.js';
 import type { AttachmentsFace } from './read-image.js';
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
@@ -44,7 +45,14 @@ export interface AgyAdapterOptions {
         idleFactor?: number;
         idleWarmupLines?: number;
     };
+    /**
+     * 续接记录的存储(默认落盘 `~/.dsh/agy/conversations.json`;测试注入
+     * 纯内存实例)。跨重启保留 conversationId 与发送锚点——否则重启后首个
+     * 续跑会退化成全量重发(实测历史可达 1.2MB)。
+     */
+    store?: ConversationStore;
 }
+/** 跨轮 conversation 记忆条目上限由 ConversationStore 管理(LRU + 持久化)。 */
 /**
  * AGY 模型适配器。stream() 每次调用:
  * 序列化 prompt → spawn agy -p → 逐行翻译为 StreamChunk(实时) →
@@ -53,11 +61,9 @@ export interface AgyAdapterOptions {
 export declare class AgyLlmAdapter extends LlmAdapter {
     private readonly ctx;
     private readonly options;
-    /** dsh sessionId → 续接记录(跨轮记忆,续跑只补发 AGY 尚未见过的增量)。 */
+    /** dsh sessionId → 续接记录(持久化,续跑只补发 AGY 尚未见过的增量)。 */
     private readonly conversations;
     constructor(ctx: Context, options: AgyAdapterOptions);
-    /** 记忆 dsh 会话的续接记录;超限淘汰最旧(Map 迭代序即插入序)。 */
-    private rememberConversation;
     /**
      * 绑定模型元数据与分发流入口(rc.2+ 的 LlmAdapter 接口)。
      * 显式实现而非依赖基类:插件对宿主 dsh-llm 版本保持兼容

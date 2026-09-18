@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { AgyLlmAdapter } from '../src/adapter.ts'
+import { ConversationStore } from '../src/conversations.ts'
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
@@ -55,6 +56,7 @@ describe('AgyLlmAdapter:停止(abort)必须结束流', () => {
       model: 'gemini-3.1-pro-high',
       effort: 'high',
       extraArgs: [],
+      store: new ConversationStore(null),
     })
     const controller = new AbortController()
     const chunks: StreamChunk[] = []

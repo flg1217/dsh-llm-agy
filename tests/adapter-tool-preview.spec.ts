@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { AgyLlmAdapter } from '../src/adapter.ts'
+import { ConversationStore } from '../src/conversations.ts'
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
@@ -128,6 +129,7 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     mockedSpawn.mockImplementation(() => scriptedProc(lines) as unknown as ReturnType<typeof spawn>)
     const adapter = new AgyLlmAdapter(ctx, {
       command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
+      store: new ConversationStore(null),
     })
     const chunks: StreamChunk[] = []
     for await (const chunk of adapter.stream(options())) chunks.push(chunk)
@@ -155,6 +157,7 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     mockedSpawn.mockImplementation(() => proc as unknown as ReturnType<typeof spawn>)
     const adapter = new AgyLlmAdapter(ctx, {
       command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
+      store: new ConversationStore(null),
     })
     const consume = (async () => {
       for await (const _chunk of adapter.stream(options())) { /* 只关心会话事件 */ }
@@ -201,6 +204,7 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     const adapter = new AgyLlmAdapter(ctx, {
       command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
       getAttachments: () => attachments,
+      store: new ConversationStore(null),
     })
     for await (const _chunk of adapter.stream(options())) { /* 只关心会话事件 */ }
 
