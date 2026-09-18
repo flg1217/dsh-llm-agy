@@ -91,13 +91,15 @@ afterEach(() => {
 })
 
 describe('buildPrompt:运行时约束与延续说明', () => {
-  it('每次生成的 prompt 都带禁后台任务的运行时约束', async () => {
+  it('每次生成的 prompt 都带运行时约束(后台任务必须轮询到完成)', async () => {
     const { prompt, cleanup } = await buildPrompt(ctx, opts(undefined, [
       { role: 'user', content: '跑一下测试' },
     ]))
     leftOvers.push(cleanup)
     expect(prompt).toContain('非交互一次性调用')
-    expect(prompt).toContain('run_in_background')
+    // 后台任务支持:转后台后必须用 command_status 轮询到完成,禁止提前收尾。
+    expect(prompt).toContain('command_status')
+    expect(prompt).toContain('后台任务')
     expect(prompt).toContain('前台运行')
     // 约束在任务消息之前。
     expect(prompt.indexOf('运行环境约束')).toBeLessThan(prompt.indexOf('跑一下测试'))
