@@ -124,7 +124,7 @@ describe('buildPrompt:运行时约束与延续说明', () => {
   })
 
   it('超长 prompt 落临时文件:约束与延续说明一并进文件,cleanup 删除', async () => {
-    const long = '历史记录。'.repeat(6000) // > 26K 阈值
+    const long = '历史记录。'.repeat(500_000) // > 2M 阈值(AGY stdin 单行截断上限内)
     const { prompt, cleanup } = await buildPrompt(ctx, opts('子代理系统提示', [
       { role: 'user', content: long },
       { role: 'assistant', content: '做过一些工作' },
@@ -147,7 +147,7 @@ describe('buildPrompt:运行时约束与延续说明', () => {
 
   it('cleanup 删除任务文件', async () => {
     const { prompt, cleanup } = await buildPrompt(ctx, opts(undefined, [
-      { role: 'user', content: 'x'.repeat(27_000) },
+      { role: 'user', content: 'x'.repeat(2_100_000) },
     ]))
     const file = /[^\s"']*agy-task-.+\.txt/.exec(prompt)?.[0] ?? ''
     expect(file).not.toBe('')

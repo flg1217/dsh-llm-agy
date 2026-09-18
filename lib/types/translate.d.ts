@@ -67,6 +67,8 @@ export declare class AgyTranslator {
     end(): StreamChunk[];
     /** 已收到的执行错误(AGY result ERROR)。 */
     get resultError(): string | undefined;
+    /** 是否已有任何可交付文本(流式拼接或 result.response;空回答判定用)。 */
+    get hasContent(): boolean;
     /** 下一个可用 block index(adapter 附加反馈块时使用)。 */
     get nextIndex(): number;
     /** 累计输入 token(含缓存)。AGY 的 input_tokens 是增量,cacheRead 是累计值。 */

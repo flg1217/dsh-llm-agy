@@ -1,6 +1,10 @@
 /**
  * 适配器:AGY 文件类工具结果的 dsh 化补全(端到端,喂 stream-json)。
  *
+ * 架构:常驻进程(--input-format stream-json),轮状态由 stdin 写入建立;
+ * 测试在 push 事件前等 stdin(轮已建立)。工具结果的异步补全(view_file
+ * 预览/图片、edit diff)在轮收尾前由 pendingEnrich 统一完成。
+ *
  * 锁死两条链路:
  * - view_file 的 DONE → tool/result 文本 = 原始摘要 + 文件头部预览(行号格式);
  * - replace_file_content 的 ACTIVE 快照 + DONE 重读 → tool/result 文本 = 本次 diff。
@@ -25,46 +29,45 @@ vi.mock('node:child_process', async (importOriginal) => {
 const { spawn } = await import('node:child_process')
 const mockedSpawn = vi.mocked(spawn)
 
-/** 假 AGY 进程:把给定的 stream-json 行以 latin1 字节吐出后自然结束。 */
-function scriptedProc(lines: string[]): EventEmitter & Record<string, unknown> {
-  const proc = new EventEmitter() as EventEmitter & Record<string, unknown>
-  const payload = lines.map((l) => Buffer.from(l, 'utf8').toString('latin1')).join('\n') + '\n'
-  proc.stdout = Readable.from([payload])
-  proc.stderr = undefined
-  proc.pid = 5151
-  proc.exitCode = null
-  proc.signalCode = null
-  proc.kill = vi.fn()
-  proc.stdout.on('end', () => setTimeout(() => {
-    proc.exitCode = 0
-    proc.emit('exit', 0, null)
-    proc.emit('close', 0, null)
-  }, 10))
-  return proc
+/** 假 AGY 常驻进程:测试 push 行(stdin 收集;不自动退出)。 */
+interface PushProc extends EventEmitter {
+  stdout: Readable
+  stderr: Readable
+  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }
+  stdinWrites: string[]
+  pid: number
+  exitCode: number | null
+  signalCode: string | null
+  kill: ReturnType<typeof vi.fn>
+  pushLine: (l: string) => void
+  end: () => void
 }
 
-/**
- * 受控假进程:测试自己 push 行(pushLine)与结束(end),时序确定——
- * 用于构造"ACTIVE 已被适配器处理(快照已取)之后再改文件"的场景。
- */
-function pushProc(): EventEmitter & Record<string, unknown> & { pushLine: (l: string) => void; end: () => void } {
-  const proc = new EventEmitter() as EventEmitter & Record<string, unknown> & { pushLine: (l: string) => void; end: () => void }
+function pushProc(): PushProc {
+  const proc = new EventEmitter() as PushProc
+  const stdinWrites: string[] = []
   proc.stdout = new Readable({ read() { /* 由测试 push */ } })
-  proc.stderr = undefined
+  proc.stderr = new Readable({ read() { /* 无输出 */ } })
+  proc.stdinWrites = stdinWrites
+  proc.stdin = {
+    write: vi.fn((chunk: string) => { stdinWrites.push(chunk); return true }),
+    end: vi.fn(),
+  }
   proc.pid = 5153
   proc.exitCode = null
   proc.signalCode = null
   proc.kill = vi.fn()
-  proc.pushLine = (l: string) => { (proc.stdout as Readable).push(Buffer.from(l, 'utf8').toString('latin1') + '\n') }
-  proc.end = () => {
-    ;(proc.stdout as Readable).push(null)
-    setTimeout(() => {
-      proc.exitCode = 0
-      proc.emit('exit', 0, null)
-      proc.emit('close', 0, null)
-    }, 10)
-  }
+  proc.pushLine = (l: string) => { (proc.stdout as Readable).push(`${l}\n`) }
+  proc.end = () => { (proc.stdout as Readable).push(null) }
   return proc
+}
+
+/** spawn 分流:agy → 假进程;taskkill(进程树杀)→ 哑对象。 */
+function route(proc: PushProc): void {
+  mockedSpawn.mockImplementation(((cmd: string) => {
+    if (cmd === 'taskkill') return { on: vi.fn() }
+    return proc
+  }) as unknown as typeof spawn)
 }
 
 async function waitFor(cond: () => boolean, timeoutMs = 1000): Promise<void> {
@@ -93,7 +96,7 @@ function options(): GenerateOptions {
     provider: 'agy',
     model: 'gemini-3.1-pro-high',
     sessionId: 'sess-preview',
-    messages: [{ role: 'user', content: [{ type: 'text', text: '干活' }] }],
+    messages: [{ id: 'u1', role: 'user', content: [{ type: 'text', text: '干活' }], source: { kind: 'user' } }],
   } as unknown as GenerateOptions
 }
 
@@ -120,19 +123,27 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
   let dir: string
   beforeEach(() => {
     appended.length = 0
-    mockedSpawn.mockClear()
+    mockedSpawn.mockReset()
     dir = mkdtempSync(join(tmpdir(), 'agy-adapter-preview-'))
   })
   afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
-  async function drive(lines: string[]): Promise<void> {
-    mockedSpawn.mockImplementation(() => scriptedProc(lines) as unknown as ReturnType<typeof spawn>)
+  /** 跑一轮:起消费 → 等 stdin(轮建立)→ 推项目行 → 结束 → 等消费完成。 */
+  async function drive(lines: string[], adapterOptions?: Record<string, unknown>): Promise<void> {
+    const proc = pushProc()
+    route(proc)
     const adapter = new AgyLlmAdapter(ctx, {
       command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
       store: new ConversationStore(null),
+      ...adapterOptions,
     })
-    const chunks: StreamChunk[] = []
-    for await (const chunk of adapter.stream(options())) chunks.push(chunk)
+    const consume = (async () => {
+      for await (const _chunk of adapter.stream(options())) { /* 只关心会话事件 */ }
+    })()
+    await waitFor(() => proc.stdinWrites.length >= 1)
+    for (const line of lines) proc.pushLine(line)
+    proc.end()
+    await consume
   }
 
   it('view_file:摘要 + 文件头部预览进 tool/result', async () => {
@@ -154,7 +165,7 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     const file = join(dir, 'edit.txt')
     writeFileSync(file, 'keep\nalt\nkeep2')
     const proc = pushProc()
-    mockedSpawn.mockImplementation(() => proc as unknown as ReturnType<typeof spawn>)
+    route(proc)
     const adapter = new AgyLlmAdapter(ctx, {
       command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
       store: new ConversationStore(null),
@@ -162,6 +173,7 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     const consume = (async () => {
       for await (const _chunk of adapter.stream(options())) { /* 只关心会话事件 */ }
     })()
+    await waitFor(() => proc.stdinWrites.length >= 1)
     // ACTIVE → 等适配器处理完(快照已取)→ 模拟 AGY 完成编辑 → DONE。
     proc.pushLine(stepLine('ACTIVE', 'replace_file_content', 2, { parameters: { TargetFile: file } }))
     await waitFor(() => appended.some((e) => e.type === 'tool/call'))
@@ -196,17 +208,11 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
         return { attachmentId: 'sha256:testimg', mediaType: input.mediaType, bytes: input.data.byteLength, width: 1, height: 1, ...(input.name === undefined ? {} : { name: input.name }) }
       },
     }
-    mockedSpawn.mockImplementation(() => scriptedProc([
+    await drive([
       stepLine('ACTIVE', 'view_file', 4, { parameters: { AbsolutePath: png } }),
       stepLine('DONE', 'view_file', 4, { output: 'PNG image' }),
       JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
-    ]) as unknown as ReturnType<typeof spawn>)
-    const adapter = new AgyLlmAdapter(ctx, {
-      command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
-      getAttachments: () => attachments,
-      store: new ConversationStore(null),
-    })
-    for await (const _chunk of adapter.stream(options())) { /* 只关心会话事件 */ }
+    ], { getAttachments: () => attachments })
 
     expect(saved).toEqual([{ mediaType: 'image/png', bytes: 12, name: 'shot.png' }])
     const resultEvent = appended.find((e) => e.type === 'tool/result')

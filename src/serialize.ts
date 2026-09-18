@@ -32,8 +32,12 @@ const IMAGE_EXT: Record<string, string> = {
   'image/gif': 'gif',
 }
 
-/** 长 prompt 转临时文件引用的阈值(Windows 命令行 32K 上限,留足余量)。 */
-const FILE_REF_THRESHOLD = 26_000
+/**
+ * 长 prompt 转临时文件引用的阈值:AGY stdin 单行实测约 2.5MB 处截断
+ * (2568544 bytes),留安全余量。命令行 32K 限制已不相关——持久进程模式下
+ * prompt 经 stdin 的 NDJSON 行发送(不再走 -p 参数)。
+ */
+const FILE_REF_THRESHOLD = 2_000_000
 
 /**
  * 运行时约束:AGY 每次调用都是一个一次性 print 进程,回合结束进程即终止,

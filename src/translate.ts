@@ -281,6 +281,14 @@ export class AgyTranslator {
     if (this.textOpen) {
       this.textOpen = false
       chunks.push({ type: 'block-end', index: this.nextIndexValue, block: { type: 'text', text: finalText } })
+    } else if (finalText.length > 0) {
+      // AGY 只给了 result.response(全程无 text_delta)时也要交付文本:
+      // 旧行为只在 text_delta 开过块时输出,这段文本会被静默丢掉
+      // (短回答/快速收尾轮实测会出现)。
+      this.nextIndexValue += 1
+      chunks.push({ type: 'block-start', index: this.nextIndexValue, blockType: 'text' })
+      chunks.push({ type: 'text-delta', index: this.nextIndexValue, text: finalText })
+      chunks.push({ type: 'block-end', index: this.nextIndexValue, block: { type: 'text', text: finalText } })
     }
     if (this._usage !== undefined) chunks.push({ type: 'usage', usage: this._usage })
     if (this._resultError !== undefined) {
@@ -300,6 +308,11 @@ export class AgyTranslator {
   /** 已收到的执行错误(AGY result ERROR)。 */
   get resultError(): string | undefined {
     return this._resultError
+  }
+
+  /** 是否已有任何可交付文本(流式拼接或 result.response;空回答判定用)。 */
+  get hasContent(): boolean {
+    return this._finalText !== undefined || this._text.length > 0
   }
 
   /** 下一个可用 block index(adapter 附加反馈块时使用)。 */

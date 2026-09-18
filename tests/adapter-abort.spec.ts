@@ -1,10 +1,11 @@
 /**
  * 适配器停止(abort)回归测试——针对"子代理页面点停止没反应"的根因:
  *
- * 只 `proc.kill()` + `stdout.destroy()` 并**不能**结束
- * `for await (const line of rl)`(readline 只认 rl.close() 或 EOF,实测)。
- * 当 AGY 的工具子进程残留、继续持有 stdout 写端时,这个读循环会永久挂起 →
- * 回合永远"进行中",再点停止也不会有效果(信号已中止,监听器已摘除)。
+ * 只 `proc.kill()` + `stdout.destroy()` 并**不能**结束 readline 的读循环
+ * (readline 只认 rl.close() 或 EOF,实测)。当 AGY 的工具子进程残留、继续
+ * 持有 stdout 写端时,这个读循环会永久挂起 → 回合永远"进行中",再点停止
+ * 也不会有效果。持久进程架构下 abort 由 killSession 承担:关 stdin、杀
+ * 进程树(/T)、关 readline、唤醒等待中的轮。
  *
  * 因此本测试锁死:abort → 杀进程树 + 关 readline → 流必须结束。
  */
@@ -24,11 +25,12 @@ vi.mock('node:child_process', async (importOriginal) => {
 const { spawn } = await import('node:child_process')
 const mockedSpawn = vi.mocked(spawn)
 
-/** 假 AGY 进程:stdout 永不产出、永不 EOF,kill 也不关流(模拟残留子进程持有写端)。 */
+/** 假 AGY 常驻进程:stdout 永不产出、永不 EOF,kill 也不关流(模拟残留子进程持有写端)。 */
 function stuckProc(): EventEmitter & Record<string, unknown> {
   const proc = new EventEmitter() as EventEmitter & Record<string, unknown>
   proc.stdout = new Readable({ read() { /* 永不产出、永不结束 */ } })
-  proc.stderr = undefined
+  proc.stderr = new Readable({ read() { /* 无输出 */ } })
+  proc.stdin = { write: vi.fn(), end: vi.fn() }
   proc.pid = 4242
   proc.exitCode = null
   proc.signalCode = null
@@ -42,6 +44,7 @@ function options(signal: AbortSignal): GenerateOptions {
   return {
     provider: 'agy',
     model: 'gemini-3.1-pro-high',
+    sessionId: 's-abort',
     messages: [{ role: 'user', content: [{ type: 'text', text: '继续' }] }],
     signal,
   } as unknown as GenerateOptions
@@ -50,7 +53,10 @@ function options(signal: AbortSignal): GenerateOptions {
 describe('AgyLlmAdapter:停止(abort)必须结束流', () => {
   it('进程被杀但 stdout 不 EOF 时,流也必须结束', async () => {
     const proc = stuckProc()
-    mockedSpawn.mockImplementation(() => proc as unknown as ReturnType<typeof spawn>)
+    mockedSpawn.mockImplementation(((cmd: string) => {
+      if (cmd === 'taskkill') return { on: vi.fn() }
+      return proc
+    }) as unknown as ReturnType<typeof spawn>)
     const adapter = new AgyLlmAdapter(ctx, {
       command: 'agy',
       model: 'gemini-3.1-pro-high',
