@@ -62,18 +62,27 @@ export function parseAgyLine(line: string): AgyLine | undefined {
   try {
     const evt = JSON.parse(line) as {
       event?: string
+      /** 顶层 conversation_id(init/result 事件的真实形状,2026-09-18 实测 dump)。 */
+      conversation_id?: string
       init?: { conversation_id?: string }
-      step_update?: AgyEvent['step_update']
-      result?: { status?: string; response?: unknown; error?: unknown }
+      step_update?: AgyEvent['step_update'] & { conversation_id?: string }
+      result?: { status?: string; response?: unknown; error?: unknown; conversation_id?: string }
     }
-    // init 事件:提供 conversation_id,重试时用 --conversation 恢复同一会话续跑。
+    // init 事件:提供 conversation_id,续跑时用 --conversation 恢复同一会话。
+    // ⚠️ conversation_id 在**事件顶层**(与 "init" 平级),不在 init 对象里——
+    // 旧解析取 init.conversation_id 恒 undefined,--conversation 从未生效,
+    // 每次调用都新建 AGY 会话、全量重发(实测:历史 1.2MB 每轮重灌)。
     if (evt.event === 'init') {
-      const cid = evt.init?.conversation_id
+      const cid = evt.conversation_id ?? evt.init?.conversation_id
       return typeof cid === 'string' && cid.length > 0 ? { conversationId: cid } : undefined
     }
     const su = evt.step_update
     if (su !== undefined) {
       const out: AgyLine = {}
+      // 每个 step_update 也带 conversation_id:作为 init 缺失时的兜底来源。
+      if (typeof su.conversation_id === 'string' && su.conversation_id.length > 0) {
+        out.conversationId = su.conversation_id
+      }
       const delta = su.text_delta
       if (typeof delta === 'string' && delta.length > 0) out.delta = delta
       const it = su.usage?.input_tokens
@@ -127,17 +136,22 @@ export function parseAgyLine(line: string): AgyLine | undefined {
       const response = r?.response
       const interrupted = typeof r?.error === 'string'
         && /stream was interrupted|continue the task/i.test(r.error)
+      // result 也带 conversation_id:init 丢失时的最后兜底来源。
+      const cid = typeof r?.conversation_id === 'string' && r.conversation_id.length > 0
+        ? r.conversation_id
+        : undefined
+      const withCid = (out: AgyLine): AgyLine => (cid === undefined ? out : { ...out, conversationId: cid })
       if (r?.status === 'SUCCESS' || (typeof response === 'string' && response.length > 0)) {
-        if (typeof response === 'string' && response.length > 0) return { finalText: response, final: true }
-        return { final: true }
+        if (typeof response === 'string' && response.length > 0) return withCid({ finalText: response, final: true })
+        return withCid({ final: true })
       }
-      if (interrupted) return { final: true }
-      return {
+      if (interrupted) return withCid({ final: true })
+      return withCid({
         final: true,
         ...typeof r?.error === 'string' && r.error.length > 0
           ? { resultError: latin1ToUtf8(r.error) }
           : {},
-      }
+      })
     }
     return undefined
   } catch {
@@ -176,7 +190,9 @@ export class AgyTranslator {
     const parsed = parseAgyLine(line)
     if (parsed === undefined) return { chunks }
 
-    if (parsed.conversationId !== undefined) return { chunks, conversationId: parsed.conversationId }
+    // conversation_id 伴随任意事件到达(init / 每个 step_update / result):
+    // 不能截断本行剩余处理(step_update 还带 delta/usage),随返回值附带。
+    const cid = parsed.conversationId
     if (parsed.final === true) this._final = true
 
     if (parsed.usage !== undefined) {
@@ -226,6 +242,7 @@ export class AgyTranslator {
 
     return {
       chunks,
+      ...(cid === undefined ? {} : { conversationId: cid }),
       ...parsed.step !== undefined ? { step: parsed.step } : {},
       ...this._final ? { final: true } : {},
     }

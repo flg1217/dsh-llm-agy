@@ -253,7 +253,7 @@ describe('适配器:错误归因与重试', () => {
       timeouts: { firstMs: 5_000, idleMinMs: 30, idleMaxMs: 40, idleFactor: 3, idleWarmupLines: 1 },
     })
     const consume = collect(adapter)
-    first.pushLine(JSON.stringify({ event: 'init', init: { conversation_id: 'c-stall' } }))
+    first.pushLine(JSON.stringify({ event: 'init', conversation_id: 'c-stall', init: { model: 'm' } }))
     // 保持静默 → 空闲超时 → 判死。
     await new Promise(resolve => setTimeout(resolve, 250))
     expect(first.kill).toHaveBeenCalled()

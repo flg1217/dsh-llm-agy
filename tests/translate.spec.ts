@@ -39,6 +39,57 @@ describe('parseAgyLine result 终局判定', () => {
   })
 })
 
+describe('conversation_id 解析(真实事件形状)', () => {
+  it('init:conversation_id 在事件顶层(2026-09-18 实测 dump),嵌套旧形状仍兼容', () => {
+    // 现场:旧解析取 init.conversation_id 恒 undefined——--conversation 从未
+    // 生效,每次调用都新建会话全量重发(历史 1.2MB)。
+    expect(parseAgyLine(JSON.stringify({
+      event: 'init',
+      conversation_id: 'c-real',
+      init: { model: 'm', cwd: 'D:/x', tools: ['run_command'] },
+    }))).toEqual({ conversationId: 'c-real' })
+    expect(parseAgyLine(JSON.stringify({
+      event: 'init',
+      init: { conversation_id: 'c-nested' },
+    }))).toEqual({ conversationId: 'c-nested' })
+  })
+
+  it('step_update 带 conversation_id 时不丢 delta/usage(兜底来源)', () => {
+    const parsed = parseAgyLine(JSON.stringify({
+      event: 'step_update',
+      step_update: { conversation_id: 'c1', step_type: 'agent_response', state: 'ACTIVE', text_delta: 'hello' },
+    }))
+    expect(parsed?.conversationId).toBe('c1')
+    expect(parsed?.delta).toBe('hello')
+  })
+
+  it('result 带 conversation_id 时随终局一并返回(最后兜底)', () => {
+    const parsed = parseAgyLine(JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: 'ok', conversation_id: 'c1' },
+    }))
+    expect(parsed).toEqual({ finalText: 'ok', final: true, conversationId: 'c1' })
+  })
+})
+
+describe('AgyTranslator.push:conversation_id 不截断本行处理', () => {
+  it('step_update 带 conversation_id 时 delta 与 conversationId 同时产出', () => {
+    const t = new AgyTranslator()
+    const r = t.push(JSON.stringify({
+      event: 'step_update',
+      step_update: { conversation_id: 'c1', step_type: 'agent_response', state: 'ACTIVE', text_delta: 'hi' },
+    }))
+    expect(r.conversationId).toBe('c1')
+    expect(r.chunks.some(c => c.type === 'text-delta')).toBe(true)
+  })
+
+  it('init 顶层 conversation_id 随 push 返回', () => {
+    const t = new AgyTranslator()
+    const r = t.push(JSON.stringify({ event: 'init', conversation_id: 'c1', init: { model: 'm' } }))
+    expect(r.conversationId).toBe('c1')
+  })
+})
+
 describe('AgyTranslator 终局收尾', () => {
   it('流中断提示后 end() 产出正常 finish,不报执行失败', () => {
     const t = new AgyTranslator()

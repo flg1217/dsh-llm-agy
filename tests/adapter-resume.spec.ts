@@ -52,9 +52,9 @@ function agyProc(lines: string[], exitCode = 0): EventEmitter & Record<string, u
   return proc
 }
 
-/** 一次成功回合的 stream-json 行(init 带会话 id)。 */
+/** 一次成功回合的 stream-json 行(init 带会话 id;conversation_id 在事件顶层,真实形状)。 */
 const okLines = (cid: string): string[] => [
-  `{"event":"init","init":{"conversation_id":"${cid}"}}`,
+  `{"event":"init","conversation_id":"${cid}","init":{"model":"m"}}`,
   '{"step_update":{"text_delta":"done"}}',
   `{"event":"result","result":{"status":"SUCCESS","response":"done text"}}`,
 ]
@@ -262,7 +262,7 @@ describe('AgyLlmAdapter:续跑增量补发(--conversation 记忆)', () => {
 
   it('首轮失败:不写记录,下次仍发全量(不是增量,不静默吞消息)', async () => {
     mockedSpawn.mockImplementation(() => agyProc([
-      '{"event":"init","init":{"conversation_id":"c1"}}',
+      '{"event":"init","conversation_id":"c1","init":{"model":"m"}}',
       '{"event":"result","result":{"status":"ERROR","error":"boom"}}',
     ], 1) as unknown as ReturnType<typeof spawn>)
     const adapter = makeAdapter()
@@ -284,7 +284,7 @@ describe('AgyLlmAdapter:续跑增量补发(--conversation 记忆)', () => {
 
   it('网络错重试:同会话续跑(--conversation + 续跑提示带约束),成功后锚点推进', async () => {
     mockedSpawn.mockImplementationOnce(() => agyProc([
-      '{"event":"init","init":{"conversation_id":"c1"}}',
+      '{"event":"init","conversation_id":"c1","init":{"model":"m"}}',
       '{"event":"result","result":{"status":"ERROR","error":"network issue"}}',
     ], 1) as unknown as ReturnType<typeof spawn>)
     mockedSpawn.mockImplementationOnce(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
@@ -319,7 +319,7 @@ describe('AgyLlmAdapter:续跑增量补发(--conversation 记忆)', () => {
     const stuckProc = (): EventEmitter & Record<string, unknown> => {
       const proc = new EventEmitter() as EventEmitter & Record<string, unknown>
       const stdout = new Readable({ read(): void { /* 永不产出/EOOF */ } })
-      stdout.push('{"event":"init","init":{"conversation_id":"c1"}}\n')
+      stdout.push('{"event":"init","conversation_id":"c1","init":{"model":"m"}}\n')
       proc.stdout = stdout
       proc.stderr = undefined
       proc.pid = 4242
