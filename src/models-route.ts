@@ -115,6 +115,7 @@ export function registerAgyModelsRoute(
   const loadEntries = (opts: { command: string; proxy?: string }): Promise<Array<{ id: string; name?: string }>> => {
     if (inflight !== undefined) return inflight
     inflight = listAgyModelEntriesAsync(opts.command, { proxy: opts.proxy })
+      .then(result => result.entries)
       .finally(() => { inflight = undefined })
     return inflight
   }
