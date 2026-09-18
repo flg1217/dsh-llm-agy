@@ -23,7 +23,7 @@
 
 import { execFile, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { basename } from 'node:path'
+import { basename, extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, createToolResultMessage } from '@deepseek-ai/dsh-llm'
@@ -36,7 +36,7 @@ import type { AgyStep } from './types.js'
 import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
 import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile } from './tool-preview.js'
 import { commitImagePresentation } from './read-image.js'
-import type { AttachmentsFace } from './read-image.js'
+import type { AttachmentsFace, ImageRefValue } from './read-image.js'
 
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
@@ -107,6 +107,49 @@ const MAX_TASK_WAIT_ROUNDS = 10
 
 /** 仍视为"在运行"的任务状态(manage_task 输出的大写状态词)。 */
 const TASK_RUNNING_RE = /^(RUNNING|PENDING|IN_PROGRESS|QUEUED|STARTING)$/i
+
+/** 图片扩展名声明(与 tool-fs 原生 read_image 的声明集一致;内容以魔数判定)。 */
+const IMAGE_EXT_MEDIA: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+}
+
+/**
+ * 看图映射:AGY 的 view_file 指向图片文件时,把工具调用映射成 dsh 原生
+ * `read_image` 的形状(名字 + file_path 参数)——会话界面、模型侧信封与
+ * 原生读图完全一致;非图片路径返回 undefined(保持 view_file 原样)。
+ */
+function mapImageToolCall(
+  toolName: string,
+  params: Record<string, unknown> | undefined,
+): { name: string; arguments: Record<string, unknown> } | undefined {
+  if (toolName !== 'view_file') return undefined
+  const path = agyToolFilePath(params)
+  if (path === undefined) return undefined
+  if (IMAGE_EXT_MEDIA[extname(path).toLowerCase()] === undefined) return undefined
+  return { name: 'read_image', arguments: { file_path: path } }
+}
+
+/**
+ * dsh read_image 的模型面向信封(与 tool-fs 的 formatImageReadOutput 同形):
+ * 图片本体走相邻的 image 内容块,文本只给路径/类型/尺寸/缩放信息。
+ */
+function formatImageReadEnvelope(displayPath: string, image: ImageRefValue): string {
+  let scaled = ''
+  if (image.originalDimensions !== undefined) {
+    const x = (image.originalDimensions.width / image.width).toFixed(2)
+    const y = (image.originalDimensions.height / image.height).toFixed(2)
+    const advice = x === y
+      ? `multiply coordinates by ${x}`
+      : `multiply x coordinates by ${x} and y coordinates by ${y}`
+    scaled = ` (downscaled from ${image.originalDimensions.width}x${image.originalDimensions.height} px; ${advice} to locate features in the original file)`
+  }
+  return `<path>${displayPath}</path>\n<type>image</type>\n<content>\n`
+    + `${image.mediaType} image, ${image.width}x${image.height} px, ${image.bytes} bytes${scaled}\n</content>`
+}
 
 /**
  * 从工具输出提取后台任务状态(manage_task / command_status 的稳定文本格式,
@@ -419,7 +462,13 @@ export class AgyLlmAdapter extends LlmAdapter {
     const target = active.session
     if (stepType !== 'tool' || toolName === undefined || target === undefined) return
     active.sawToolStep = true
-    const callId = agyCallId(toolName, stepIndex, active.attempt)
+    // 看图映射(ACTIVE/DONE 必须一致,callId 配对):DONE 事件常不带参数,
+    // 取 ACTIVE 时缓存的参数判定;view_file 指向图片时映射为原生 read_image。
+    const effectiveParams = toolParams ?? (stepIndex !== undefined ? active.stepParams.get(stepIndex) : undefined)
+    const mapped = mapImageToolCall(toolName, effectiveParams)
+    const callName = mapped?.name ?? toolName
+    const callArgs = mapped?.arguments ?? effectiveParams
+    const callId = agyCallId(callName, stepIndex, active.attempt)
     if (state === 'ACTIVE') {
       // 去重:AGY 的工具参数流式生成,同一 step 的 ACTIVE 会来多次
       // (空壳 → 参数逐步补全)。tool/call 只落地第一次,重复落地会让前端
@@ -435,12 +484,12 @@ export class AgyLlmAdapter extends LlmAdapter {
         turn: active.turn,
         step: active.step,
         callId,
-        name: toolName,
-        arguments: JSON.stringify(toolParams ?? {}),
+        name: callName,
+        arguments: JSON.stringify(callArgs ?? {}),
       })
       if (stepIndex !== undefined) active.toolCallSeq.set(stepIndex, ev.seq)
-      const args = JSON.stringify(toolParams ?? {})
-      active.translator.recentSteps.push({ toolName, args, status: 'running' })
+      const args = JSON.stringify(callArgs ?? {})
+      active.translator.recentSteps.push({ toolName: callName, args, status: 'running' })
       if (active.translator.recentSteps.length > 8) {
         active.translator.recentSteps.splice(0, active.translator.recentSteps.length - 8)
       }
@@ -485,6 +534,9 @@ export class AgyLlmAdapter extends LlmAdapter {
     const seq = active.toolCallSeq.get(stepIndex)
     let extra: string | undefined
     let imageBlock: { type: 'image'; attachment: unknown } | undefined
+    // 图片呈现的附件引用:成功时结果文本改用 dsh read_image 的信封格式
+    // (与原生读图一致:文本给路径/类型/尺寸,图片本体走相邻 image 块)。
+    let imageRef: ImageRefValue | undefined
     if (toolName === 'view_file') {
       const image = readImageFile(filePath)
       if (image !== undefined) {
@@ -492,17 +544,23 @@ export class AgyLlmAdapter extends LlmAdapter {
           this.options.getAttachments?.(), image.data, image.mediaType,
           filePath !== undefined ? basename(filePath) : undefined,
         )
-        if (ref !== undefined) imageBlock = { type: 'image', attachment: ref }
-      } else {
+        if (ref !== undefined) {
+          imageRef = ref
+          imageBlock = { type: 'image', attachment: ref }
+        }
+      }
+      if (imageBlock === undefined) {
         extra = enrichAgyToolResult(toolName, filePath)
       }
     } else {
       extra = enrichAgyToolResult(toolName, filePath, active.editSnapshots.get(stepIndex))
     }
     active.editSnapshots.delete(stepIndex)
-    const text = extra === undefined
-      ? textOut
-      : textOut.length > 0 ? `${textOut}\n\n${extra}` : extra
+    const text = imageRef !== undefined
+      ? formatImageReadEnvelope(filePath ?? '', imageRef)
+      : extra === undefined
+        ? textOut
+        : textOut.length > 0 ? `${textOut}\n\n${extra}` : extra
     target.append('tool/result', {
       turn: active.turn,
       step: active.step,

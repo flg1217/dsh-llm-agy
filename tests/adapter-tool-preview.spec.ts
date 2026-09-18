@@ -159,6 +159,9 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     expect(texts[0]).toContain('3 lines, 18 bytes')
     expect(texts[0]).toContain('1→# 标题')
     expect(texts[0]).toContain('3→正文二')
+    // 非图片路径不映射:保持 view_file 原样。
+    const callEvent = appended.find((e) => e.type === 'tool/call')
+    expect((callEvent?.data as { name?: string })?.name).toBe('view_file')
   })
 
   it('replace_file_content:快照对比出本次 diff 进 tool/result', async () => {
@@ -198,7 +201,7 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     expect(resultTexts()[0]).toBe('0 lines')
   })
 
-  it('view_file 读到图片:提交附件并以 image 内容块入结果(不走文本预览)', async () => {
+  it('view_file 读到图片:映射为 dsh 原生 read_image(工具名/参数/信封 + image 块)', async () => {
     const png = join(dir, 'shot.png')
     writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]))
     const saved: Array<{ mediaType: string; bytes: number; name?: string }> = []
@@ -215,12 +218,21 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     ], { getAttachments: () => attachments })
 
     expect(saved).toEqual([{ mediaType: 'image/png', bytes: 12, name: 'shot.png' }])
+    // 工具调用映射成原生 read_image 的形状(名字 + file_path 参数)。
+    const callEvent = appended.find((e) => e.type === 'tool/call')
+    const callData = callEvent?.data as { name?: string; arguments?: string }
+    expect(callData?.name).toBe('read_image')
+    expect(JSON.parse(callData?.arguments ?? '{}')).toEqual({ file_path: png })
+    // 结果:文本 = dsh 原生读图信封(路径/类型/尺寸),图片本体走相邻 image 块。
     const resultEvent = appended.find((e) => e.type === 'tool/result')
     const content = (resultEvent?.data as { message?: { content?: readonly { content?: readonly { type: string; text?: string; attachment?: { attachmentId?: string } }[] }[] } })
       ?.message?.content?.[0]?.content ?? []
     expect(content).toHaveLength(2)
     expect(content[0]?.type).toBe('text')
-    expect(content[0]?.text).toBe('PNG image') // 二进制不落文本预览
+    expect(content[0]?.text).toContain(`<path>${png}</path>`)
+    expect(content[0]?.text).toContain('<type>image</type>')
+    expect(content[0]?.text).toContain('image/png image, 1x1 px, 12 bytes')
+    expect(content[0]?.text).not.toContain('PNG image') // AGY 摘要被信封替换
     expect(content[1]?.type).toBe('image')
     expect(content[1]?.attachment?.attachmentId).toBe('sha256:testimg')
   })
