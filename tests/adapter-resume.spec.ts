@@ -191,4 +191,125 @@ describe('AgyLlmAdapter:续跑增量补发(--conversation 记忆)', () => {
     expect(mockedSpawn).toHaveBeenCalledTimes(3)
     expect(argsOf(2)).toContain('--conversation')
   })
+
+  it('多轮演进:锚点逐轮推进,每轮只发新增量;会话 id 更新被记住', async () => {
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    const adapter = makeAdapter()
+    await collect(adapter.stream(opts('s1', [msg('m1', 'user', '第一问')])))
+    expect(argsOf(0)).not.toContain('--conversation')
+
+    // 第二轮:AGY 恢复后 init 返回新的会话 id(c2)——记录应更新为 c2。
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c2')) as unknown as ReturnType<typeof spawn>)
+    await collect(adapter.stream(opts('s1', [
+      msg('m1', 'user', '第一问'),
+      msg('m2', 'assistant', '第一答'),
+      msg('m3', 'user', '第二问'),
+    ])))
+    {
+      const args = argsOf(1)
+      expect(args[args.indexOf('--conversation') + 1]).toBe('c1')
+      const prompt = args[args.indexOf('-p') + 1]
+      expect(prompt).toContain('第二问')
+      expect(prompt).not.toContain('第一问')
+      expect(prompt).not.toContain('第一答')
+    }
+
+    // 第三轮:锚点已推进到 m3,只发 m4;会话 id 已是 c2。
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c2')) as unknown as ReturnType<typeof spawn>)
+    await collect(adapter.stream(opts('s1', [
+      msg('m1', 'user', '第一问'),
+      msg('m2', 'assistant', '第一答'),
+      msg('m3', 'user', '第二问'),
+      msg('m4', 'user', '第三问'),
+    ])))
+    {
+      const args = argsOf(2)
+      expect(args[args.indexOf('--conversation') + 1]).toBe('c2')
+      const prompt = args[args.indexOf('-p') + 1]
+      expect(prompt).toContain('第三问')
+      expect(prompt).not.toContain('第二问')
+    }
+  })
+
+  it('首轮失败:不写记录,下次仍发全量(不是增量,不静默吞消息)', async () => {
+    mockedSpawn.mockImplementation(() => agyProc([
+      '{"event":"init","init":{"conversation_id":"c1"}}',
+      '{"event":"result","result":{"status":"ERROR","error":"boom"}}',
+    ], 1) as unknown as ReturnType<typeof spawn>)
+    const adapter = makeAdapter()
+    await collect(adapter.stream(opts('s1', [msg('m1', 'user', '第一问')])))
+    expect(mockedSpawn).toHaveBeenCalledTimes(1) // "boom" 非 retryable,不重试
+
+    // 失败未写记录:下次调用无 --conversation 且发全量(含第一问)。
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    await collect(adapter.stream(opts('s1', [
+      msg('m1', 'user', '第一问'),
+      msg('m2', 'user', '继续'),
+    ])))
+    const args = argsOf(1)
+    expect(args).not.toContain('--conversation')
+    const prompt = args[args.indexOf('-p') + 1]
+    expect(prompt).toContain('第一问')
+    expect(prompt).toContain('继续')
+  })
+
+  it('网络错重试:同会话续跑(--conversation + 续跑提示带约束),成功后锚点推进', async () => {
+    mockedSpawn.mockImplementationOnce(() => agyProc([
+      '{"event":"init","init":{"conversation_id":"c1"}}',
+      '{"event":"result","result":{"status":"ERROR","error":"network issue"}}',
+    ], 1) as unknown as ReturnType<typeof spawn>)
+    mockedSpawn.mockImplementationOnce(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    const adapter = makeAdapter()
+    await collect(adapter.stream(opts('s1', [msg('m1', 'user', '第一问')])))
+
+    expect(mockedSpawn).toHaveBeenCalledTimes(2)
+    {
+      const args = argsOf(1)
+      expect(args[args.indexOf('--conversation') + 1]).toBe('c1')
+      const prompt = args[args.indexOf('-p') + 1]
+      expect(prompt).toContain('继续完成之前未完成的任务')
+      expect(prompt).toContain('运行环境约束') // 约束随行
+      expect(prompt).not.toContain('第一问')   // 不重发原任务
+    }
+
+    // 重试成功后锚点推进到 m1:第三轮是增量。
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    await collect(adapter.stream(opts('s1', [
+      msg('m1', 'user', '第一问'),
+      msg('m2', 'user', '继续'),
+    ])))
+    const args = argsOf(2)
+    expect(args).toContain('--conversation')
+    const prompt = args[args.indexOf('-p') + 1]
+    expect(prompt).toContain('继续')
+    expect(prompt).not.toContain('第一问')
+  })
+
+  it('abort:即使已拿到会话 id 也不写记录,下次调用仍全量', async () => {
+    /** init 已到但 stdout 永不 EOF(模拟残留子进程持有写端)。 */
+    const stuckProc = (): EventEmitter & Record<string, unknown> => {
+      const proc = new EventEmitter() as EventEmitter & Record<string, unknown>
+      const stdout = new Readable({ read(): void { /* 永不产出/EOOF */ } })
+      stdout.push('{"event":"init","init":{"conversation_id":"c1"}}\n')
+      proc.stdout = stdout
+      proc.stderr = undefined
+      proc.pid = 4242
+      proc.exitCode = null
+      proc.signalCode = null
+      proc.kill = vi.fn()
+      return proc
+    }
+    mockedSpawn.mockImplementation(() => stuckProc() as unknown as ReturnType<typeof spawn>)
+    const adapter = makeAdapter()
+    const controller = new AbortController()
+    const consume = collect(adapter.stream({ ...opts('s1', [msg('m1', 'user', '第一问')]), signal: controller.signal } as GenerateOptions))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    controller.abort()
+    await consume
+
+    // 记录未写:下次调用无 --conversation(全量重发)。
+    mockedSpawn.mockImplementation(() => agyProc(okLines('c1')) as unknown as ReturnType<typeof spawn>)
+    await collect(adapter.stream(opts('s1', [msg('m1', 'user', '第一问')])))
+    expect(argsOf(1)).not.toContain('--conversation')
+  })
 })

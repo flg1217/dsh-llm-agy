@@ -21,6 +21,11 @@ export interface SerializedPrompt {
     prompt: string;
     cleanup: () => Promise<void>;
 }
+/**
+ * 续跑提示的完整 prompt(带运行时约束):调用方在无具体补发内容的重试轮
+ * (attempt>1)使用。每次都是新进程,约束必须随行。
+ */
+export declare function continuationPrompt(): string;
 /** 首轮全量序列化(system + 消息)。仅当本 dsh 会话没有 AGY conversation 记忆时使用。 */
 export declare function buildPrompt(ctx: Context, options: GenerateOptions): Promise<SerializedPrompt>;
 /**

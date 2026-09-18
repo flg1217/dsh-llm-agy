@@ -56,6 +56,35 @@ function compactCheckpoint(id: string): Message {
   } as unknown as Message
 }
 
+/** 其他模型的工具调用(assistant 消息,tool-call 块)。 */
+function toolCallMessage(id: string, name: string, args: string): Message {
+  return {
+    id,
+    role: 'assistant',
+    content: [{ type: 'tool-call', id: 'c1', name, arguments: args }],
+    source: { kind: 'model', provider: 'deepseek', model: 'v4' },
+  } as unknown as Message
+}
+
+/** 工具结果消息(tool-result 块,source.kind='tool')。 */
+function toolResultMessage(id: string, text: string): Message {
+  return {
+    id,
+    role: 'user',
+    content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text }] }],
+    source: { kind: 'tool', callId: 'c1' },
+  } as unknown as Message
+}
+
+/** 带附件服务的 ctx(图片落盘路径)。 */
+function attachmentsCtx(): Context {
+  const readImage = async (): Promise<{ data: Uint8Array; ref: { mediaType: string } }> => ({
+    data: new Uint8Array([1, 2, 3]),
+    ref: { mediaType: 'image/png' },
+  })
+  return { get: (key: string) => (key === 'attachments' ? { readImage } : undefined) } as unknown as Context
+}
+
 const leftOvers: Array<() => void> = []
 afterEach(() => {
   for (const fn of leftOvers.splice(0)) fn()
@@ -208,6 +237,57 @@ describe('resumeReplayPrompt:锚点增量补发(与 codebuddy 转换模块同源
     leftOvers.push(cleanup)
     expect(prompt).toContain('继续')
     expect(prompt).not.toContain('原始任务')
+  })
+
+  it('增量里的工具调用与结果完整可见(纯 tool-call 消息不落空文本被跳过)', async () => {
+    const messages = [
+      userMessage('m1', '任务'),
+      toolCallMessage('m2', 'Bash', '{"command":"ls"}'),
+      toolResultMessage('m3', 'ls 的输出'),
+      userMessage('m4', '继续'),
+    ]
+    const { prompt, cleanup } = await resumeReplayPrompt(ctx, messages, 1, 'm1')
+    leftOvers.push(cleanup)
+    expect(prompt).toContain('[tool call: Bash {"command":"ls"}]')
+    expect(prompt).toContain('ls 的输出')
+    expect(prompt).toContain('继续')
+  })
+
+  it('own 轮的工具结果跟随跳过(AGY conversation 已有)', async () => {
+    const messages = [
+      userMessage('m1', '任务'),
+      ownAssistant('m2', 'own 回答'),
+      toolResultMessage('m3', 'own 轮的工具结果'),
+      userMessage('m4', '继续'),
+    ]
+    const { prompt, cleanup } = await resumeReplayPrompt(ctx, messages, 1, 'm1')
+    leftOvers.push(cleanup)
+    expect(prompt).not.toContain('own 轮的工具结果')
+    expect(prompt).toContain('继续')
+  })
+
+  it('增量里的图片落盘为路径提示,cleanup 删除', async () => {
+    const imageCtx = attachmentsCtx()
+    const messages = [
+      userMessage('m1', '任务'),
+      {
+        id: 'm2',
+        role: 'user',
+        content: [
+          { type: 'text', text: '看这张图' },
+          { type: 'image', attachment: { attachmentId: 'img-1' } },
+        ],
+        source: { kind: 'user' },
+      } as unknown as Message,
+    ]
+    const { prompt, cleanup } = await resumeReplayPrompt(imageCtx, messages, 1, 'm1')
+    expect(prompt).toContain('看这张图')
+    expect(prompt).toContain('[附带图片,请读取以下本地路径查看:')
+    const file = /[A-Za-z]:[\\/][^\s\]]*agy-[0-9a-f-]+\.png/.exec(prompt)?.[0] ?? ''
+    expect(file).not.toBe('')
+    expect(existsSync(file)).toBe(true)
+    await cleanup()
+    expect(existsSync(file)).toBe(false)
   })
 })
 

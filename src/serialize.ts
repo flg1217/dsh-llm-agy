@@ -96,6 +96,14 @@ function continueMessage(): Message {
 }
 
 /**
+ * 续跑提示的完整 prompt(带运行时约束):调用方在无具体补发内容的重试轮
+ * (attempt>1)使用。每次都是新进程,约束必须随行。
+ */
+export function continuationPrompt(): string {
+  return `${RUNTIME_CONSTRAINTS}\n\nUser: ${CONTINUE_PROMPT}`
+}
+
+/**
  * 序列化主体:前缀(约束/系统提示)+ 消息文本;图片落盘为路径提示。
  * 超长整体转临时文件,cleanup 等删除真正完成。
  */
