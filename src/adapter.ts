@@ -431,7 +431,9 @@ export class AgyLlmAdapter extends LlmAdapter {
                   // (空壳 → 参数逐步补全)。tool/call 只落地第一次,重复落地
                   // 会让前端装配器崩掉(received more than one start Match,
                   // 实测毒死整个事件订阅流,子代理窗口全白)。
-                  if (stepIndex !== undefined && toolCallSeq.has(stepIndex)) return
+                  // 必须 continue——return 在 async generator 里会终止整个流,
+                  // 后续工具结果与回答全部丢失(实测)。
+                  if (stepIndex !== undefined && toolCallSeq.has(stepIndex)) continue
                   if (stepIndex !== undefined && toolParams !== undefined) stepParams.set(stepIndex, toolParams)
                   // 文件变更类工具:执行前快照目标文件,DONE 时对比出本次改动(diff 补全)。
                   if (stepIndex !== undefined && AGY_FILE_MUTATION_TOOLS.has(toolName)) {
@@ -450,8 +452,9 @@ export class AgyLlmAdapter extends LlmAdapter {
                   translator.recentSteps.push({ toolName, args, status: 'running' })
                   if (translator.recentSteps.length > 8) translator.recentSteps.splice(0, translator.recentSteps.length - 8)
                 } else if (state === 'DONE' || state === 'ERROR') {
-                  // 去重:无配对 call 或已落过 result 的重复 DONE/ERROR 直接忽略。
-                  if (stepIndex === undefined || !toolCallSeq.has(stepIndex)) return
+                  // 去重:无配对 call 的 DONE/ERROR 直接忽略。必须 continue—
+                  // return 会终止整个流(见 ACTIVE 分支)。
+                  if (stepIndex === undefined || !toolCallSeq.has(stepIndex)) continue
                   const seq = toolCallSeq.get(stepIndex)
                   const output = agyStep.output
                   // 工具输出的 latin1→UTF-8 还原已在 translator(fixLatin1Deep)完成。
@@ -510,6 +513,12 @@ export class AgyLlmAdapter extends LlmAdapter {
                     if (state === 'ERROR') {
                       last.message = textOut.split('\n')[0]?.slice(0, 200) ?? 'unknown error'
                     }
+                  }
+                  // 收尾后从配对表移除:重复到达的 DONE/ERROR 会在上面被
+                  // continue 忽略,不再落地幽灵 tool/result。
+                  if (stepIndex !== undefined) {
+                    toolCallSeq.delete(stepIndex)
+                    stepParams.delete(stepIndex)
                   }
                 }
               }
