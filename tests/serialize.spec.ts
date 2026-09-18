@@ -91,16 +91,20 @@ afterEach(() => {
 })
 
 describe('buildPrompt:运行时约束与延续说明', () => {
-  it('每次生成的 prompt 都带运行时约束(后台任务必须轮询到完成)', async () => {
+  it('每次生成的 prompt 都带运行时约束(后台任务轮询 + UTF-8 输出编码)', async () => {
     const { prompt, cleanup } = await buildPrompt(ctx, opts(undefined, [
       { role: 'user', content: '跑一下测试' },
     ]))
     leftOvers.push(cleanup)
-    expect(prompt).toContain('非交互一次性调用')
-    // 后台任务支持:转后台后必须用 command_status 轮询到完成,禁止提前收尾。
+    expect(prompt).toContain('多轮之间保活')
+    // 后台任务支持:转后台后用状态工具轮询到完成;禁止无结果的"稍后汇报"收尾。
     expect(prompt).toContain('command_status')
     expect(prompt).toContain('后台任务')
     expect(prompt).toContain('前台运行')
+    // 中文乱码防线:pwsh 命令必须带 UTF-8 输出编码(GBK 字节会被 AGY 按
+    // UTF-8 解码成 U+FFFD,不可恢复——实测)。
+    expect(prompt).toContain('OutputEncoding')
+    expect(prompt).toContain('乱码')
     // 约束在任务消息之前。
     expect(prompt.indexOf('运行环境约束')).toBeLessThan(prompt.indexOf('跑一下测试'))
   })
@@ -140,7 +144,7 @@ describe('buildPrompt:运行时约束与延续说明', () => {
     const { readFile } = await import('node:fs/promises')
     const content = await readFile(file, 'utf8')
     expect(content).toContain('System instructions:')
-    expect(content).toContain('非交互一次性调用')
+    expect(content).toContain('多轮之间保活')
     expect(content).toContain('同一任务的延续')
     expect(content.indexOf('同一任务的延续')).toBeLessThan(content.indexOf('做过一些工作'))
   })
