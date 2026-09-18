@@ -53,7 +53,11 @@ export interface AgyAdapterOptions {
 export declare class AgyLlmAdapter extends LlmAdapter {
     private readonly ctx;
     private readonly options;
+    /** dsh sessionId → 续接记录(跨轮记忆,续跑只补发 AGY 尚未见过的增量)。 */
+    private readonly conversations;
     constructor(ctx: Context, options: AgyAdapterOptions);
+    /** 记忆 dsh 会话的续接记录;超限淘汰最旧(Map 迭代序即插入序)。 */
+    private rememberConversation;
     /**
      * 绑定模型元数据与分发流入口(rc.2+ 的 LlmAdapter 接口)。
      * 显式实现而非依赖基类:插件对宿主 dsh-llm 版本保持兼容
