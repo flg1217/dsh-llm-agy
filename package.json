@@ -82,5 +82,8 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "dependencies": {
+    "@flg1217/dsh-mcp": "link:../dsh-mcp"
   }
 }

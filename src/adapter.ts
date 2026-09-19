@@ -37,6 +37,8 @@ import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
 import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile } from './tool-preview.js'
 import { commitImagePresentation } from './read-image.js'
 import type { AttachmentsFace, ImageRefValue } from './read-image.js'
+import { EXECUTOR_AGENT_NAME, ensureDshMcpConfig, ensureExecutorAgent } from './agy-executor.js'
+import { dshMcpEndpointUrl } from '@flg1217/dsh-mcp'
 
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
@@ -80,6 +82,12 @@ export interface AgyAdapterOptions {
    * 续跑会退化成全量重发(实测历史可达 1.2MB)。
    */
   store?: ConversationStore
+  /**
+   * AGY 工具全 dsh 化开关(getter,默认 true):每次启动进程时现读——
+   * true 时部署 dsh-executor 自定义 agent(禁内置工具)+ 把 dsh MCP 端点
+   * 写入 agy 全局配置,并以 `--agent dsh-executor` 启动。
+   */
+  dshExecutor?: () => boolean
 }
 
 /**
@@ -307,6 +315,15 @@ export class AgyLlmAdapter extends LlmAdapter {
     // 模型名自带强度后缀(gemini-3.8-flash-high 等)时,AGY 拒绝再传
     // --effort("--model X conflicts with --effort=Y"),此时静默省略。
     const effortArgs = /-(low|medium|high)$/i.test(model) ? [] : ['--effort', this.options.effort]
+    // AGY 工具全 dsh 化(默认开):部署 dsh-executor 自定义 agent(禁内置
+    // 工具)+ 把 dsh MCP 端点(含本会话 session/key)写入 agy 全局配置,
+    // 并以 --agent 启动——AGY 的工具调用全部经 dsh 的 MCP 通道。
+    const useExecutor = this.options.dshExecutor?.() ?? true
+    if (useExecutor) {
+      ensureExecutorAgent()
+      const mcpUrl = dshMcpEndpointUrl(sessionId)
+      if (mcpUrl !== undefined) ensureDshMcpConfig(mcpUrl)
+    }
     const proc = spawn(this.options.command, [
       // 官方 driver 模式:stdin 逐行 NDJSON,一个进程跑多轮;后台任务在
       // 同进程内被管理(回合结束不退出、任务完成唤醒 agent,实测)。
@@ -316,6 +333,7 @@ export class AgyLlmAdapter extends LlmAdapter {
       '--print-timeout', '60m',
       '--model', model,
       ...effortArgs,
+      ...useExecutor ? ['--agent', EXECUTOR_AGENT_NAME] : [],
       // 非交互模式下 AGY 的工具调用需要放行。
       '--dangerously-skip-permissions',
       // 显式指定工作区:否则 AGY 默认在用户主目录搜索/操作。

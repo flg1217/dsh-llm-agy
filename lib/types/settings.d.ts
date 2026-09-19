@@ -19,6 +19,12 @@ export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
     readImageAgy: z<boolean, boolean>;
     /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
     searchOverride: z<boolean, boolean>;
+    /**
+     * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
+     * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
+     * 关闭后恢复 AGY 自带工具(旧行为)。
+     */
+    dshExecutor: z<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     command: z<string, string>;
     model: z<string, string>;
@@ -30,7 +36,15 @@ export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
     readImageAgy: z<boolean, boolean>;
     /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
     searchOverride: z<boolean, boolean>;
+    /**
+     * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
+     * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
+     * 关闭后恢复 AGY 自带工具(旧行为)。
+     */
+    dshExecutor: z<boolean, boolean>;
 }>>;
+/** 读取 dshExecutor 开关(默认开启)。 */
+export declare function readDshExecutorEnabled(ctx: Context): boolean;
 /** 读取 readImageAgy 开关(默认开启)。 */
 export declare function readImageAgyEnabled(ctx: Context): boolean;
 /** 读取 searchOverride 开关(默认开启):开 = 注册进全局 web 搜索缝,关 = 仅独立 agy_web_search 工具。 */

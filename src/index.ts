@@ -11,7 +11,8 @@ import { AgySearchProvider } from './search.js'
 import type {} from '@deepseek-ai/dsh-settings'
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { registerAgySearchTool } from './search-tool.js'
-import { readImageAgyEnabled, registerAgySettings, searchOverrideEnabled } from './settings.js'
+import { readDshExecutorEnabled, readImageAgyEnabled, registerAgySettings, searchOverrideEnabled } from './settings.js'
+import { registerDshMcpServer } from '@flg1217/dsh-mcp'
 import { installImageRelay, isImageCapableRoute } from './image-paste.js'
 import { captureAttachments, registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
@@ -107,7 +108,13 @@ export function apply(ctx: Context, config: Config): void {
     // view_file 读到图片时走图片块通道(附件提交 + 画廊授权),与
     // read_image_agy 共用同一捕获的服务。
     getAttachments: captureAttachments(ctx),
+    // AGY 工具全 dsh 化(getter,默认开):dsh-executor 自定义 agent 禁内置
+    // 工具,全部工具经本插件注册的 dsh MCP 端点。
+    dshExecutor: () => readDshExecutorEnabled(ctx),
   }))
+  // dsh 的 MCP 端点(AGY 工具全 dsh 化通道):共享 @flg1217/dsh-mcp 提供单一
+  // 端点(/api/dsh-mcp);agy 以 --agent dsh-executor 经全局 mcp_config.json 连接。
+  registerDshMcpServer(ctx)
   // 子代理委派工具:前端/UI 设计(subagent_agy_ui,continuable 可复用长线会话),
   // 由 AGY/Gemini 驱动;看图不委派子代理(用全局 read_image_agy)。
   if (config.registerSubagentTools !== false) {

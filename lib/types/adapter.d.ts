@@ -67,6 +67,12 @@ export interface AgyAdapterOptions {
      * 续跑会退化成全量重发(实测历史可达 1.2MB)。
      */
     store?: ConversationStore;
+    /**
+     * AGY 工具全 dsh 化开关(getter,默认 true):每次启动进程时现读——
+     * true 时部署 dsh-executor 自定义 agent(禁内置工具)+ 把 dsh MCP 端点
+     * 写入 agy 全局配置,并以 `--agent dsh-executor` 启动。
+     */
+    dshExecutor?: () => boolean;
 }
 /**
  * AGY 模型适配器。每个 dsh 会话一个常驻进程(--input-format stream-json),

@@ -25,7 +25,19 @@ export const AgySettingsConfig = z.object({
   readImageAgy: z.boolean().default(true).description('使用 AGY 读取粘贴的图片'),
   /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
   searchOverride: z.boolean().default(true).description('用 AGY 搜索接管全局 web_search 工具'),
+  /**
+   * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
+   * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
+   * 关闭后恢复 AGY 自带工具(旧行为)。
+   */
+  dshExecutor: z.boolean().default(true).description('AGY 工具全部经 dsh(禁用 AGY 自带工具)'),
 })
+
+/** 读取 dshExecutor 开关(默认开启)。 */
+export function readDshExecutorEnabled(ctx: Context): boolean {
+  const settings = ctx.get('settings') as { get?: (ns: string) => { dshExecutor?: boolean } | undefined } | undefined
+  return settings?.get?.('agy')?.dshExecutor ?? true
+}
 
 /** 读取 readImageAgy 开关(默认开启)。 */
 export function readImageAgyEnabled(ctx: Context): boolean {
