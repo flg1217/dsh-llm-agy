@@ -17,11 +17,13 @@
  *    —— `{ disabled: false, serverUrl: <dsh 端点>&session=<本 agent 会话>&key=<key> }`
  *    —— AGY 全局配置只有一个 `dsh` 条目。
  *
- * **已知并发限制**:两个 dsh 会话并行首启时,"写配置 + spawn"在事件循环内虽
- * 是原子的,但 AGY 进程**在 init 阶段才读配置**——后写者可能覆盖先启动进程
- * 尚未读到的条目,使先者连上后者的会话 URL(工具在对方会话执行)。窗口窄
- * (进程启动毫秒级)但真实存在。修法需"等 A 进程 init 后再 spawn B"的串行化
- * (或 AGY 侧 per-agent MCP 配置),暂记录为待办。
+ * **并发窗口与缓解**:两个 dsh 会话并行首启时,"写配置 + spawn"在事件循环内
+ * 虽原子,但 AGY 进程**在 init 阶段才读配置**——后写者可能覆盖先启动进程
+ * 尚未读到的条目,使先者连上后者的会话 URL(工具在对方会话执行)。适配器的
+ * spawnGate(见 adapter.ts 的 acquire)已按此串行化:下一个 spawn 等前一个
+ * 进程报到首个带 conversation_id 的事件(或 3s 兜底/进程死亡)才继续,单会话
+ * 首启零延迟。残余窗口:兜底放行后若有第三个会话写入,理论上仍可能覆盖——
+ * 概率极低,彻底消除需 AGY 侧 per-agent MCP 配置。
  * @module llm-agy/agy-executor
  */
 

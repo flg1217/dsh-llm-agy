@@ -193,6 +193,37 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     expect(text).toContain('  1│keep')
   })
 
+  it('首个 ACTIVE 是空壳(无参数)时,快照在参数补全后补取(diff 不丢)', async () => {
+    const file = join(dir, 'late.txt')
+    writeFileSync(file, 'a\nb')
+    const proc = pushProc()
+    route(proc)
+    const adapter = new AgyLlmAdapter(ctx, {
+      command: 'agy', model: 'gemini-3.1-pro-high', effort: 'high', extraArgs: [],
+      store: new ConversationStore(null),
+    })
+    const consume = (async () => {
+      for await (const _chunk of adapter.stream(options())) { /* 只关心会话事件 */ }
+    })()
+    await waitFor(() => proc.stdinWrites.length >= 1)
+    // 空壳 ACTIVE(参数流式生成中,还没有路径)→ 无法取快照。
+    proc.pushLine(stepLine('ACTIVE', 'replace_file_content', 5, {}))
+    await waitFor(() => appended.some((e) => e.type === 'tool/call'))
+    // 参数补全的第二次 ACTIVE(仍去重不重复落地):此时补取快照。
+    proc.pushLine(stepLine('ACTIVE', 'replace_file_content', 5, { parameters: { TargetFile: file } }))
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(appended.filter((e) => e.type === 'tool/call')).toHaveLength(1)
+    writeFileSync(file, 'a\nB')
+    proc.pushLine(stepLine('DONE', 'replace_file_content', 5, { output: '' }))
+    proc.pushLine(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }))
+    proc.end()
+    await consume
+
+    const text = resultTexts()[0]
+    expect(text).toContain('- 2│b')
+    expect(text).toContain('+ 2│B')
+  })
+
   it('文件未变更时 view_file 预览失败也不影响原始结果', async () => {
     await drive([
       stepLine('ACTIVE', 'view_file', 3, { parameters: { AbsolutePath: join(dir, 'missing.txt') } }),

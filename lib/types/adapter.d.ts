@@ -113,7 +113,13 @@ export declare class AgyLlmAdapter extends LlmAdapter {
     private onLine;
     /** 工具步骤落地为会话事件(语义与旧 -p 实现一致,状态挂在轮上)。 */
     private handleToolStep;
-    /** DONE/ERROR 的异步补全与落地(view_file 图片走附件通道;write/edit 附 diff)。 */
+    /**
+     * DONE/ERROR 的异步补全与落地(view_file 图片走附件通道;write/edit 附 diff)。
+     *
+     * `toolName` 是 AGY 原名(enrichAgyToolResult 按它分派);`callName` 是映射后
+     * 的展示名(dsh MCP 调用翻回原生名)——recentSteps 里记的是 callName,状态
+     * 回填必须按它比对,否则执行体模式下工具永远停在 "… running"。
+     */
     private enrichToolResult;
     /** 建立一轮:translator、工具事件上下文与动态空闲计时。 */
     private beginTurn;

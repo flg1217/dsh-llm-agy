@@ -273,6 +273,30 @@ describe('适配器:错误归因与重试', () => {
     expect(text).toContain('run_command')
   })
 
+  it('MCP 映射调用完成后,执行反馈按映射名回填状态(不停在 running)', async () => {
+    const proc = agyProc()
+    routeProcs(proc)
+    const adapter = makeAdapter()
+    const consume = collect(adapter)
+    await waitFor(() => proc.stdinWrites.length === 1)
+    // dsh MCP 调用翻译成原生名(pwsh);recentSteps 记的是映射名,状态回填必须
+    // 按它比对——否则执行体模式下每个工具都停在 "… running"(review 发现)。
+    proc.pushLine(stepLine('ACTIVE', 'call_mcp_tool', 1, {
+      parameters: { ServerName: 'dsh', ToolName: 'pwsh', Arguments: { command: 'echo hi' } },
+    }))
+    proc.pushLine(stepLine('DONE', 'call_mcp_tool', 1, { output: 'hi' }))
+    proc.pushLine(resultLine('ERROR', { error: 'the prompt exceeds the maximum context window length' }))
+    const chunks = await consume
+
+    const text = chunks
+      .filter(c => c.type === 'text-delta')
+      .map(c => (c as { text?: string }).text ?? '')
+      .join('')
+    expect(text).toContain('pwsh')
+    expect(text).toContain('✓ OK')
+    expect(text).not.toContain('… running')
+  })
+
   it('空闲超时且 AGY 无活跃子进程 → 杀进程树并 retryable 重试', async () => {
     mockedExecFile.mockImplementation(((_file: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => {
       cb(new Error('no powershell'), '')
