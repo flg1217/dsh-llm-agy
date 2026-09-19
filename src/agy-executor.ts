@@ -15,12 +15,17 @@
  *      展开也一起杀掉(只剩 call_mcp_tool 壳)。
  * 2. **MCP 配置**:写 `~/.gemini/config/mcp_config.json` 的 `dsh` 条目
  *    —— `{ disabled: false, serverUrl: <dsh 端点>&session=<本 agent 会话>&key=<key> }`
- *    —— AGY 全局配置只有一个 `dsh` 条目,并发多个 agy 进程时会互相覆盖,
- *    故本模块的记录以"最后一次写入"为准(调用方负责串行化 spawn)。
+ *    —— AGY 全局配置只有一个 `dsh` 条目。
+ *
+ * **已知并发限制**:两个 dsh 会话并行首启时,"写配置 + spawn"在事件循环内虽
+ * 是原子的,但 AGY 进程**在 init 阶段才读配置**——后写者可能覆盖先启动进程
+ * 尚未读到的条目,使先者连上后者的会话 URL(工具在对方会话执行)。窗口窄
+ * (进程启动毫秒级)但真实存在。修法需"等 A 进程 init 后再 spawn B"的串行化
+ * (或 AGY 侧 per-agent MCP 配置),暂记录为待办。
  * @module llm-agy/agy-executor
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -84,14 +89,25 @@ export function ensureExecutorAgent(): boolean {
   }
 }
 
-/** 读取 mcp_config.json(缺失/损坏时返回空对象)。 */
-function readMcpConfig(): { mcpServers?: Record<string, unknown> } {
+/**
+ * 读取 mcp_config.json。
+ * @returns 不存在/不可读 → `{}`(首次部署,可安全新建);**存在但损坏 → undefined**
+ *   (调用方必须跳过写入——把解析失败的残缺内容整体写回会静默清空用户
+ *   其余的 MCP 服务器条目,如 codegraph)。
+ */
+function readMcpConfig(): { mcpServers?: Record<string, unknown> } | undefined {
+  let raw: string
   try {
-    const raw = readFileSync(mcpConfigFile(), 'utf8')
-    const parsed = JSON.parse(raw) as { mcpServers?: Record<string, unknown> }
-    return parsed
+    raw = readFileSync(mcpConfigFile(), 'utf8')
   } catch {
     return {}
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    return parsed as { mcpServers?: Record<string, unknown> }
+  } catch {
+    return undefined
   }
 }
 
@@ -105,6 +121,12 @@ function readMcpConfig(): { mcpServers?: Record<string, unknown> } {
 export function ensureDshMcpConfig(serverUrl: string): boolean {
   const file = mcpConfigFile()
   const config = readMcpConfig()
+  if (config === undefined) {
+    // 文件存在但解析失败:留 .bak 后跳过——绝不整体覆盖(会丢用户其它 MCP 服务器)。
+    try { copyFileSync(file, `${file}.bak`) } catch { /* 备份失败不阻断 */ }
+    console.warn('[llm-agy] mcp_config.json 解析失败(已留 .bak),本次跳过 dsh 条目写入,不覆盖用户配置')
+    return false
+  }
   const servers = config.mcpServers ?? {}
   const existing = servers[DSH_MCP_SERVER_NAME] as { serverUrl?: string } | undefined
   if (existing?.serverUrl === serverUrl) return false
@@ -116,6 +138,30 @@ export function ensureDshMcpConfig(serverUrl: string): boolean {
     return true
   } catch (error) {
     console.warn(`[llm-agy] 写 MCP 配置失败: ${error instanceof Error ? error.message : String(error)}`)
+    return false
+  }
+}
+
+/**
+ * 移除 `dsh` 条目(dshExecutor 关闭时调用;其余 MCP 服务器原样保留)。
+ *
+ * 不清理的后果:默认 AGY agent 的 `inheritMcp` 会继承这条残留条目,而它带着
+ * **上一个会话的 session/key**——工具调用会打到一个不存在/无关的会话上报错,
+ * 或更糟,打到另一个 dsh 会话里执行。
+ * @returns 本次是否发生了写入。
+ */
+export function removeDshMcpConfig(): boolean {
+  const file = mcpConfigFile()
+  const config = readMcpConfig()
+  if (config === undefined) return false
+  const servers = config.mcpServers
+  if (servers === undefined || servers[DSH_MCP_SERVER_NAME] === undefined) return false
+  delete servers[DSH_MCP_SERVER_NAME]
+  try {
+    writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`)
+    return true
+  } catch (error) {
+    console.warn(`[llm-agy] 移除 MCP 配置失败: ${error instanceof Error ? error.message : String(error)}`)
     return false
   }
 }

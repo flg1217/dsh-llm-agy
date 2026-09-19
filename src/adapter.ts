@@ -37,8 +37,8 @@ import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
 import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile } from './tool-preview.js'
 import { commitImagePresentation } from './read-image.js'
 import type { AttachmentsFace, ImageRefValue } from './read-image.js'
-import { EXECUTOR_AGENT_NAME, ensureDshMcpConfig, ensureExecutorAgent } from './agy-executor.js'
-import { DSH_MCP_SERVER_NAME, dshMcpEndpointUrl } from '@flg1217/dsh-mcp'
+import { EXECUTOR_AGENT_NAME, ensureDshMcpConfig, ensureExecutorAgent, removeDshMcpConfig } from './agy-executor.js'
+import { DSH_MCP_SERVER_NAME, dshMcpEndpointUrl, registerDshMcpServer } from '@flg1217/dsh-mcp'
 
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
@@ -266,7 +266,10 @@ interface ActiveTurn {
   session?: SessionFace
   turn: number
   step: number
-  toolCallSeq: Map<number, SessionSeq>
+  /** stepIndex → 已落地 tool/call 的 (seq, callId)。DONE/ERROR 直接取回 callId
+   * 回填——不再重算:重算依赖 callName 一致,而 ACTIVE(空壳)与 DONE(带参数)
+   * 的映射可能不同,name 一变 callId 就与落地事件失配(工具结果是孤儿)。 */
+  toolCallSeq: Map<number, { seq: SessionSeq; callId: ToolCallId }>
   stepParams: Map<number, Record<string, unknown>>
   editSnapshots: Map<number, string | undefined>
 }
@@ -348,8 +351,15 @@ export class AgyLlmAdapter extends LlmAdapter {
     const useExecutor = this.options.dshExecutor?.() ?? true
     if (useExecutor) {
       ensureExecutorAgent()
+      // 端点可能因 owner(先 apply 的插件)被卸载而消失:幂等补注册,否则
+      // 拿不到 URL → AGY 以无 dsh 工具面启动("工具全 dsh 化"名存实亡)。
+      registerDshMcpServer(this.ctx)
       const mcpUrl = dshMcpEndpointUrl(sessionId)
       if (mcpUrl !== undefined) ensureDshMcpConfig(mcpUrl)
+    } else {
+      // 关闭 dshExecutor:清理残留的 dsh 条目——它带着上一个会话的
+      // session/key,默认 agent 的 inheritMcp 会继承这条脏 URL。
+      removeDshMcpConfig()
     }
     const proc = spawn(this.options.command, [
       // 官方 driver 模式:stdin 逐行 NDJSON,一个进程跑多轮;后台任务在
@@ -519,7 +529,7 @@ export class AgyLlmAdapter extends LlmAdapter {
       ?? mapDshMcpToolCall(toolName, effectiveParams)
     const callName = mapped?.name ?? toolName
     const callArgs = mapped?.arguments ?? effectiveParams
-    const callId = agyCallId(callName, stepIndex, active.attempt)
+    let callId = agyCallId(callName, stepIndex, active.attempt)
     if (state === 'ACTIVE') {
       // 去重:AGY 的工具参数流式生成,同一 step 的 ACTIVE 会来多次
       // (空壳 → 参数逐步补全)。tool/call 只落地第一次,重复落地会让前端
@@ -538,7 +548,7 @@ export class AgyLlmAdapter extends LlmAdapter {
         name: callName,
         arguments: JSON.stringify(callArgs ?? {}),
       })
-      if (stepIndex !== undefined) active.toolCallSeq.set(stepIndex, ev.seq)
+      if (stepIndex !== undefined) active.toolCallSeq.set(stepIndex, { seq: ev.seq, callId })
       const args = JSON.stringify(callArgs ?? {})
       active.translator.recentSteps.push({ toolName: callName, args, status: 'running' })
       if (active.translator.recentSteps.length > 8) {
@@ -548,8 +558,11 @@ export class AgyLlmAdapter extends LlmAdapter {
     }
     if (state !== 'DONE' && state !== 'ERROR') return
     // 去重:无配对 call 的 DONE/ERROR 直接忽略(processLine 里 return 只跳本步)。
-    if (stepIndex === undefined || !active.toolCallSeq.has(stepIndex)) return
-    const seq = active.toolCallSeq.get(stepIndex)
+    const entry = stepIndex === undefined ? undefined : active.toolCallSeq.get(stepIndex)
+    if (entry === undefined || stepIndex === undefined) return
+    const seq = entry.seq
+    // 一律用 ACTIVE 落地时的 callId(映射可能因参数差异漂移,callName 不可信)。
+    callId = entry.callId
     const output = step.output
     // 工具输出的 latin1→UTF-8 还原已在 translator(fixLatin1Deep)完成。
     // 失败时 output 可能为空、错误只在 tool_info.error 里,兜底取它。
@@ -582,7 +595,7 @@ export class AgyLlmAdapter extends LlmAdapter {
     filePath: string | undefined,
     isError: boolean,
   ): Promise<void> {
-    const seq = active.toolCallSeq.get(stepIndex)
+    const seq = active.toolCallSeq.get(stepIndex)?.seq
     let extra: string | undefined
     let imageBlock: { type: 'image'; attachment: unknown } | undefined
     // 图片呈现的附件引用:成功时结果文本改用 dsh read_image 的信封格式

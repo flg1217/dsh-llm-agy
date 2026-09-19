@@ -267,4 +267,24 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
       ServerName: 'codegraph', ToolName: 'query', Arguments: { q: 'x' },
     })
   })
+
+  it('ACTIVE 无参数、DONE 才带参数:callId 仍与 ACTIVE 一致(不漂移)', async () => {
+    // 回归:ACTIVE 空壳(参数流式补全前)不写缓存 → DONE 用自带参数映射成功,
+    // callName 从 call_mcp_tool 变成 pwsh,重算的 callId 与落地的 tool/call
+    // 不再相等 → tool/result 成为孤儿(前端配对断裂)。
+    await drive([
+      stepLine('ACTIVE', 'call_mcp_tool', 9, {}),
+      stepLine('DONE', 'call_mcp_tool', 9, {
+        parameters: { ServerName: 'dsh', ToolName: 'pwsh', Arguments: { command: 'echo hi' } },
+        output: 'hi',
+      }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
+    ])
+    const call = appended.find((e) => e.type === 'tool/call')?.data as { callId?: string }
+    const result = appended.find((e) => e.type === 'tool/result')?.data as {
+      message?: { source?: { callId?: string } }
+    }
+    expect(call?.callId).toBeDefined()
+    expect(result?.message?.source?.callId).toBe(call?.callId)
+  })
 })

@@ -15,8 +15,13 @@
  *      展开也一起杀掉(只剩 call_mcp_tool 壳)。
  * 2. **MCP 配置**:写 `~/.gemini/config/mcp_config.json` 的 `dsh` 条目
  *    —— `{ disabled: false, serverUrl: <dsh 端点>&session=<本 agent 会话>&key=<key> }`
- *    —— AGY 全局配置只有一个 `dsh` 条目,并发多个 agy 进程时会互相覆盖,
- *    故本模块的记录以"最后一次写入"为准(调用方负责串行化 spawn)。
+ *    —— AGY 全局配置只有一个 `dsh` 条目。
+ *
+ * **已知并发限制**:两个 dsh 会话并行首启时,"写配置 + spawn"在事件循环内虽
+ * 是原子的,但 AGY 进程**在 init 阶段才读配置**——后写者可能覆盖先启动进程
+ * 尚未读到的条目,使先者连上后者的会话 URL(工具在对方会话执行)。窗口窄
+ * (进程启动毫秒级)但真实存在。修法需"等 A 进程 init 后再 spawn B"的串行化
+ * (或 AGY 侧 per-agent MCP 配置),暂记录为待办。
  * @module llm-agy/agy-executor
  */
 /** 自定义 agent 名(agy --agent <name>)。 */
@@ -38,3 +43,12 @@ export declare function ensureExecutorAgent(): boolean;
  * @returns 本次是否发生了写入。
  */
 export declare function ensureDshMcpConfig(serverUrl: string): boolean;
+/**
+ * 移除 `dsh` 条目(dshExecutor 关闭时调用;其余 MCP 服务器原样保留)。
+ *
+ * 不清理的后果:默认 AGY agent 的 `inheritMcp` 会继承这条残留条目,而它带着
+ * **上一个会话的 session/key**——工具调用会打到一个不存在/无关的会话上报错,
+ * 或更糟,打到另一个 dsh 会话里执行。
+ * @returns 本次是否发生了写入。
+ */
+export declare function removeDshMcpConfig(): boolean;
