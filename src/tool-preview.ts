@@ -10,7 +10,7 @@
  * @module llm-agy/tool-preview
  */
 
-import { readFileSync, statSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url'
 /** 预览/diff 补全的预算。 */
 const MAX_READ_BYTES = 512 * 1024
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+/** 大输出落盘代读的字节上限(超过按 fd 截断读取)。 */
+const MAX_SAVED_OUTPUT_BYTES = 2 * 1024 * 1024
 const PREVIEW_LINES = 80
 const DIFF_MAX_LINES = 60
 const DIFF_CONTEXT_LINES = 3
@@ -180,8 +182,22 @@ export function readSavedToolOutput(conversationId: string, stepIndex: number): 
   const file = join(homedir(), '.gemini', 'antigravity-cli', 'brain', conversationId,
     '.system_generated', 'steps', String(stepIndex), 'output.txt')
   try {
-    const raw = readFileSync(file, 'utf8')
-    return raw.length > 0 ? raw : undefined
+    const stat = statSync(file)
+    if (!stat.isFile() || stat.size === 0) return undefined
+    // 落盘文件可能很大:按 fd 只读上限内的字节(整读会同步阻塞事件循环)。
+    const limit = Math.min(stat.size, MAX_SAVED_OUTPUT_BYTES)
+    const fd = openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(limit)
+      const read = readSync(fd, buf, 0, limit, 0)
+      const text = buf.subarray(0, read).toString('utf8')
+      if (text.length === 0) return undefined
+      return stat.size > limit
+        ? `${text}\n…(落盘输出超过 ${MAX_SAVED_OUTPUT_BYTES} 字节,已截断)`
+        : text
+    } finally {
+      closeSync(fd)
+    }
   } catch {
     return undefined
   }
@@ -198,10 +214,11 @@ export function readSavedToolOutput(conversationId: string, stepIndex: number): 
  * @returns 落盘文件的本地路径;无标记/URL 非法返回 undefined。
  */
 export function parseOffloadedMediaPath(text: string): string | undefined {
-  const m = /\[Resource offloaded to (file:\/\/\/[^\]\s]+)\]/.exec(text)
+  // 匹配到右方括号为止(而非首个空白):路径未做 URL 编码时可能含空格。
+  const m = /\[Resource offloaded to (file:\/\/\/[^\]]+)\]/.exec(text)
   if (m === null || m[1] === undefined) return undefined
   try {
-    return fileURLToPath(m[1])
+    return fileURLToPath(m[1].trim())
   } catch {
     return undefined
   }
