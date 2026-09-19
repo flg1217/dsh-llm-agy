@@ -73,3 +73,14 @@ export declare function enrichAgyToolResult(toolName: string, filePath: unknown,
  * @returns 落盘文本;不存在/不可读/为空返回 undefined。
  */
 export declare function readSavedToolOutput(conversationId: string, stepIndex: number): string | undefined;
+/**
+ * 解析 AGY 的"媒体卸载"标记,返回落盘文件路径。
+ *
+ * AGY 收到 MCP 返回的 image 内容块(如 dsh 的 read_image 结果)时不把图片
+ * 交给模型,而是落到 brain 的媒体文件,output 里只留一行
+ * `[Resource offloaded to file:///…/media_N.png]`——实测读图卡片因此只有
+ * 文本信封、没有图片预览。适配器据此代读图片字节并回填 image 块。
+ * @param text - 工具输出原文。
+ * @returns 落盘文件的本地路径;无标记/URL 非法返回 undefined。
+ */
+export declare function parseOffloadedMediaPath(text: string): string | undefined;

@@ -15,6 +15,7 @@ import { Readable } from 'node:stream'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -286,5 +287,44 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     }
     expect(call?.callId).toBeDefined()
     expect(result?.message?.source?.callId).toBe(call?.callId)
+  })
+
+  it('MCP 读图的落盘媒体:代读回填 image 块(信封用调用参数路径,预览恢复)', async () => {
+    // 回归:AGY 收到 MCP 的 image 内容块时不交给模型,而是落 brain 媒体文件,
+    // output 只剩信封 + [Resource offloaded to ...]——读图卡片只有文字没有图片。
+    const png = join(dir, 'media_0.png')
+    writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]))
+    const saved: Array<{ mediaType: string; bytes: number; name?: string }> = []
+    const attachments = {
+      saveImage: async (input: { data: Uint8Array; mediaType: string; name?: string }) => {
+        saved.push({ mediaType: input.mediaType, bytes: input.data.byteLength, ...(input.name === undefined ? {} : { name: input.name }) })
+        return { attachmentId: 'sha256:offloaded', mediaType: input.mediaType, bytes: input.data.byteLength, width: 1, height: 1 }
+      },
+    }
+    const output = [
+      '<path>D:/orig/v8-detail-open.png</path>',
+      '<type>image</type>',
+      '<content>',
+      'image/png image, 1920x1080 px, 425165 bytes',
+      '</content>',
+      `[Resource offloaded to ${pathToFileURL(png).href}]`,
+    ].join('\n')
+    await drive([
+      stepLine('ACTIVE', 'read_image', 11, { parameters: { file_path: 'D:/orig/v8-detail-open.png' } }),
+      stepLine('DONE', 'read_image', 11, { output }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
+    ], { getAttachments: () => attachments })
+
+    expect(saved).toEqual([{ mediaType: 'image/png', bytes: 12, name: 'media_0.png' }])
+    const resultEvent = appended.find((e) => e.type === 'tool/result')
+    const content = (resultEvent?.data as { message?: { content?: readonly { content?: readonly { type: string; text?: string; attachment?: { attachmentId?: string } }[] }[] } })
+      ?.message?.content?.[0]?.content ?? []
+    expect(content).toHaveLength(2)
+    expect(content[0]?.type).toBe('text')
+    // 信封用调用参数路径(可定位原始文件),落盘提示行不进入结果。
+    expect(content[0]?.text).toContain('<path>D:/orig/v8-detail-open.png</path>')
+    expect(content[0]?.text).not.toContain('Resource offloaded')
+    expect(content[1]?.type).toBe('image')
+    expect(content[1]?.attachment?.attachmentId).toBe('sha256:offloaded')
   })
 })
