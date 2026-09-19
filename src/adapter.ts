@@ -38,7 +38,7 @@ import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFile
 import { commitImagePresentation } from './read-image.js'
 import type { AttachmentsFace, ImageRefValue } from './read-image.js'
 import { EXECUTOR_AGENT_NAME, ensureDshMcpConfig, ensureExecutorAgent } from './agy-executor.js'
-import { dshMcpEndpointUrl } from '@flg1217/dsh-mcp'
+import { DSH_MCP_SERVER_NAME, dshMcpEndpointUrl } from '@flg1217/dsh-mcp'
 
 /** 适配器配置(由 index.ts 传入)。 */
 export interface AgyAdapterOptions {
@@ -139,6 +139,33 @@ function mapImageToolCall(
   if (path === undefined) return undefined
   if (IMAGE_EXT_MEDIA[extname(path).toLowerCase()] === undefined) return undefined
   return { name: 'read_image', arguments: { file_path: path } }
+}
+
+/**
+ * dsh MCP 调用翻译:AGY 经 MCP 调 dsh 工具时,事件里是通用壳
+ * `call_mcp_tool{ServerName:'dsh', ToolName, Arguments}`——同 codebuddy 的
+ * 原生卡片口径,这里把它翻译回 **dsh 原生工具调用形态**(工具名 = ToolName,
+ * 参数 = Arguments),会话界面渲染的就是该工具的原生卡片;指向其它 MCP
+ * 服务器(codegraph 等)或非 MCP 工具的调用返回 undefined(保留原样)。
+ *
+ * 参数名按 AGY 实测的 Pascal 拼写,并兼容小写变体(不同版本可能有差异)。
+ */
+function mapDshMcpToolCall(
+  toolName: string,
+  params: Record<string, unknown> | undefined,
+): { name: string; arguments: Record<string, unknown> } | undefined {
+  if (toolName !== 'call_mcp_tool' || params === undefined) return undefined
+  const server = params['ServerName'] ?? params['serverName'] ?? params['server_name']
+  if (server !== DSH_MCP_SERVER_NAME) return undefined
+  const name = params['ToolName'] ?? params['toolName'] ?? params['tool_name']
+  if (typeof name !== 'string' || name.length === 0) return undefined
+  const args = params['Arguments'] ?? params['arguments'] ?? params['args']
+  return {
+    name,
+    arguments: args !== null && typeof args === 'object' && !Array.isArray(args)
+      ? args as Record<string, unknown>
+      : {},
+  }
 }
 
 /**
@@ -482,8 +509,14 @@ export class AgyLlmAdapter extends LlmAdapter {
     active.sawToolStep = true
     // 看图映射(ACTIVE/DONE 必须一致,callId 配对):DONE 事件常不带参数,
     // 取 ACTIVE 时缓存的参数判定;view_file 指向图片时映射为原生 read_image。
-    const effectiveParams = toolParams ?? (stepIndex !== undefined ? active.stepParams.get(stepIndex) : undefined)
+    // dsh MCP 翻译同理:call_mcp_tool(ServerName=dsh) 翻译回原生工具名/参数,
+    // 会话界面渲染 dsh 原生卡片(与 codebuddy 的 mcp 模式同口径)。
+    // DONE/ERROR 以 ACTIVE 缓存参数为准(优先于事件自带参数):映射结果一旦
+    // 漂移(如 DONE 参数残缺),callId 与卡片形态会与已落地的事件失配。
+    const cachedParams = stepIndex !== undefined ? active.stepParams.get(stepIndex) : undefined
+    const effectiveParams = state === 'ACTIVE' ? (toolParams ?? cachedParams) : (cachedParams ?? toolParams)
     const mapped = mapImageToolCall(toolName, effectiveParams)
+      ?? mapDshMcpToolCall(toolName, effectiveParams)
     const callName = mapped?.name ?? toolName
     const callArgs = mapped?.arguments ?? effectiveParams
     const callId = agyCallId(callName, stepIndex, active.attempt)

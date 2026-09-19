@@ -236,4 +236,35 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     expect(content[1]?.type).toBe('image')
     expect(content[1]?.attachment?.attachmentId).toBe('sha256:testimg')
   })
+
+  it('call_mcp_tool(ServerName=dsh):翻译为 dsh 原生工具名/参数(渲染原生卡片)', async () => {
+    await drive([
+      stepLine('ACTIVE', 'call_mcp_tool', 7, {
+        parameters: { ServerName: 'dsh', ToolName: 'pwsh', Arguments: { command: 'echo hi' } },
+      }),
+      stepLine('DONE', 'call_mcp_tool', 7, { output: 'hi\n' }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
+    ])
+    // 工具调用 = dsh 原生形态(名字 + 真实参数),而不是 call_mcp_tool 壳。
+    const callData = appended.find((e) => e.type === 'tool/call')?.data as { name?: string; arguments?: string }
+    expect(callData?.name).toBe('pwsh')
+    expect(JSON.parse(callData?.arguments ?? '{}')).toEqual({ command: 'echo hi' })
+    // 结果照旧:dsh 侧执行的 stdout(AGY 报回)。
+    expect(resultTexts()[0]).toBe('hi\n')
+  })
+
+  it('call_mcp_tool 指向其它 MCP 服务器(codegraph 等):保留原样,不经 dsh 翻译', async () => {
+    await drive([
+      stepLine('ACTIVE', 'call_mcp_tool', 8, {
+        parameters: { ServerName: 'codegraph', ToolName: 'query', Arguments: { q: 'x' } },
+      }),
+      stepLine('DONE', 'call_mcp_tool', 8, { output: 'graph result' }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
+    ])
+    const callData = appended.find((e) => e.type === 'tool/call')?.data as { name?: string; arguments?: string }
+    expect(callData?.name).toBe('call_mcp_tool')
+    expect(JSON.parse(callData?.arguments ?? '{}')).toEqual({
+      ServerName: 'codegraph', ToolName: 'query', Arguments: { q: 'x' },
+    })
+  })
 })
