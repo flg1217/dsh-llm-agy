@@ -59,3 +59,17 @@ export declare function diffLineSnapshots(before: string | undefined, after: str
  * @returns 追加补全后的文本;无补全时原样返回。
  */
 export declare function enrichAgyToolResult(toolName: string, filePath: unknown, before?: string): string | undefined;
+/**
+ * AGY 大输出落盘代读。
+ *
+ * AGY 对超过阈值(实测约 6KB)的工具输出**不给内容**:落盘到
+ * `brain/<conversationId>/.system_generated/steps/<stepIndex>/output.txt`,只在
+ * 模型可见文本里留时间戳+路径;llm-agy 拿到的 `tool_info.output` 是空。适配器
+ * 按约定路径代读,把内容补进 tool/result——否则 dsh 会话与工具卡片只剩空结果
+ * (实测:skill 加载 6KB 全量落盘;模型试图用 read 读回时,读取结果**又被落盘**,
+ * 形成"读也读不回"的死循环,最终只能放弃并复述)。
+ * @param conversationId - AGY 会话 id(落盘目录名,来自 init 事件)。
+ * @param stepIndex - 工具步骤索引(落盘子目录名,与事件 step_index 同源)。
+ * @returns 落盘文本;不存在/不可读/为空返回 undefined。
+ */
+export declare function readSavedToolOutput(conversationId: string, stepIndex: number): string | undefined;

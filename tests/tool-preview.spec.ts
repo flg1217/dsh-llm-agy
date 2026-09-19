@@ -2,12 +2,21 @@
  * tool-preview 单元测试:AGY 文件类工具结果的 dsh 化补全
  * (读取预览行号格式/截断注记;写编辑的 before/after diff;异常输入静默)。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/** 落盘代读读 ~/.gemini 下的固定路径:注入测试 home(vi.mock 被提升,须 hoisted)。 */
+const testState = vi.hoisted(() => ({ home: '' }))
+vi.mock('node:os', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('node:os')>()
+  return { ...orig, homedir: () => testState.home }
+})
+
 import {
   agyToolFilePath, diffLineSnapshots, enrichAgyToolResult, readFilePreview, readFileRaw, readImageFile,
+  readSavedToolOutput,
 } from '../src/tool-preview.ts'
 
 describe('tool-preview:文件读取补全', () => {
@@ -109,5 +118,24 @@ describe('tool-preview:路径提取与补全分发', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('tool-preview:大输出落盘代读', () => {
+  beforeEach(() => { testState.home = mkdtempSync(join(tmpdir(), 'agy-brain-spec-')) })
+  afterEach(() => { rmSync(testState.home, { recursive: true, force: true }) })
+
+  it('按约定路径(brain/<conv>/.system_generated/steps/<N>/output.txt)读回内容', () => {
+    const dir = join(testState.home, '.gemini', 'antigravity-cli', 'brain', 'conv-1',
+      '.system_generated', 'steps', '7')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'output.txt'), '落盘内容-6KB')
+    expect(readSavedToolOutput('conv-1', 7)).toBe('落盘内容-6KB')
+    // 不存在的 step / 会话:静默 undefined(不猜别的路径)。
+    expect(readSavedToolOutput('conv-1', 8)).toBeUndefined()
+    expect(readSavedToolOutput('nope', 7)).toBeUndefined()
+    // 空文件视为无内容。
+    writeFileSync(join(dir, 'output.txt'), '')
+    expect(readSavedToolOutput('conv-1', 7)).toBeUndefined()
   })
 })

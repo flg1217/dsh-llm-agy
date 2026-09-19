@@ -90,7 +90,18 @@ export declare class AgyLlmAdapter extends LlmAdapter {
         model: LlmResolvedModelInfo;
         stream: (options: GenerateOptions) => AsyncIterable<StreamChunk>;
     }>;
-    /** 取会话的常驻进程;不存在/已退出则按续接记录启动(带 --conversation)。 */
+    /**
+     * spawn 门:新进程的"写 mcp_config + spawn"必须等**上一个进程 init**后才放行。
+     *
+     * AGY 的全局 mcp_config.json 只有一个 dsh 条目,而进程在 init 阶段才读它——
+     * 两会话并行首启时后写者会覆盖先启动进程尚未读到的 URL,先者便把工具调用
+     * 打到对方的会话(对方的沙箱/审批/cwd,报错也无从察觉)。
+     *
+     * 门开在 init 之后而非 spawn 之后;**首个 spawn 不阻塞**(门初始已开,单会话
+     * 零延迟);等待带 3s 兜底(进程异常时报文超时放行,不把并发卡死)。
+     */
+    private spawnGate;
+    /** 取会话的常驻进程;不存在/已退出则按接续记录启动(带 --conversation)。 */
     private acquire;
     /** 启动常驻 agy 进程并装好行/退出/错误处理。 */
     private startSession;

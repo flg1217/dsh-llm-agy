@@ -34,7 +34,7 @@ import { ConversationStore } from './conversations.js'
 import { AgyTranslator, agyCallId } from './translate.js'
 import type { AgyStep } from './types.js'
 import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
-import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile } from './tool-preview.js'
+import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, readFileRaw, readImageFile, readSavedToolOutput } from './tool-preview.js'
 import { commitImagePresentation } from './read-image.js'
 import type { AttachmentsFace, ImageRefValue } from './read-image.js'
 import { EXECUTOR_AGENT_NAME, ensureDshMcpConfig, ensureExecutorAgent, removeDshMcpConfig } from './agy-executor.js'
@@ -291,6 +291,15 @@ interface PersistentSession {
   closeLines?: () => void
   idleTimer?: ReturnType<typeof setTimeout>
   lastUsedAt: number
+  /**
+   * 进程首次报到(首个带 conversation_id 的事件)的信号;并发 spawn 排队等它。
+   *
+   * agy 的全局 mcp_config.json 只有一个 dsh 条目:两个会话并行首启时,后写者
+   * 会覆盖先启动进程**尚未读到**的 URL,先者便把工具调用打到对方的会话里
+   * (对方的沙箱/审批/cwd,报错也无从察觉)。
+   */
+  initSeen?: Promise<void>
+  initResolve?: () => void
 }
 
 /**
@@ -323,19 +332,51 @@ export class AgyLlmAdapter extends LlmAdapter {
 
   // ────────────────────────── 进程管理 ──────────────────────────
 
-  /** 取会话的常驻进程;不存在/已退出则按续接记录启动(带 --conversation)。 */
-  private acquire(sessionId: string, cwd: string, priorConversationId: string | undefined): PersistentSession {
-    let session = this.sessions.get(sessionId)
-    if (session !== undefined && !session.exited) {
-      if (session.idleTimer !== undefined) {
-        clearTimeout(session.idleTimer)
-        session.idleTimer = undefined
+  /**
+   * spawn 门:新进程的"写 mcp_config + spawn"必须等**上一个进程 init**后才放行。
+   *
+   * AGY 的全局 mcp_config.json 只有一个 dsh 条目,而进程在 init 阶段才读它——
+   * 两会话并行首启时后写者会覆盖先启动进程尚未读到的 URL,先者便把工具调用
+   * 打到对方的会话(对方的沙箱/审批/cwd,报错也无从察觉)。
+   *
+   * 门开在 init 之后而非 spawn 之后;**首个 spawn 不阻塞**(门初始已开,单会话
+   * 零延迟);等待带 3s 兜底(进程异常时报文超时放行,不把并发卡死)。
+   */
+  private spawnGate: Promise<void> = Promise.resolve()
+
+  /** 取会话的常驻进程;不存在/已退出则按接续记录启动(带 --conversation)。 */
+  private async acquire(
+    sessionId: string,
+    cwd: string,
+    priorConversationId: string | undefined,
+  ): Promise<PersistentSession> {
+    const live = this.sessions.get(sessionId)
+    if (live !== undefined && !live.exited) {
+      if (live.idleTimer !== undefined) {
+        clearTimeout(live.idleTimer)
+        live.idleTimer = undefined
       }
-      session.lastUsedAt = Date.now()
-      return session
+      live.lastUsedAt = Date.now()
+      return live
     }
-    session = this.startSession(sessionId, cwd, priorConversationId)
+    // 排队:等前一个进程 init 的门(首个 spawn 的门已开,直接过)。
+    const waitFor = this.spawnGate
+    let openGate!: () => void
+    this.spawnGate = new Promise<void>((resolve) => { openGate = resolve })
+    await waitFor
+    let session: PersistentSession
+    try {
+      session = this.startSession(sessionId, cwd, priorConversationId)
+    } catch (error) {
+      openGate() // 启动失败也要放行下一个,不把队列永久堵死
+      throw error
+    }
     this.sessions.set(sessionId, session)
+    // 自己的门开在 init 之后(下一个并发者等的是"我读到配置");自己不阻塞。
+    void Promise.race([
+      session.initSeen ?? Promise.resolve(),
+      new Promise<void>((resolve) => { setTimeout(resolve, 3000).unref?.() }),
+    ]).then(() => openGate())
     return session
   }
 
@@ -404,10 +445,13 @@ export class AgyLlmAdapter extends LlmAdapter {
       stderrTail: '',
       lastUsedAt: Date.now(),
     }
+    session.initSeen = new Promise<void>((resolve) => { session.initResolve = resolve })
 
     if (proc.stdout == null || proc.stdin == null) {
       session.spawnError = 'llm-agy: agy process has no stdout/stdin stream'
       session.exited = true
+      session.initResolve?.()
+      session.initResolve = undefined
       try { proc.kill() } catch { /* 已退出 */ }
       return session
     }
@@ -433,6 +477,9 @@ export class AgyLlmAdapter extends LlmAdapter {
 
     proc.on('error', (error: Error) => {
       session.spawnError = `agy 进程启动失败: ${error.message}`
+      // 进程起不来:它不会再读配置,spawn 门立即放行(否则并发队列空等 3s)。
+      session.initResolve?.()
+      session.initResolve = undefined
     })
     proc.on('exit', (code) => {
       session.exited = true
@@ -448,6 +495,9 @@ export class AgyLlmAdapter extends LlmAdapter {
         wake?.()
       }
       try { session.closeLines?.() } catch { /* 已关闭 */ }
+      // 已死:门立即放行(它不会再读配置)——并发队列不必空等 3s 兜底。
+      session.initResolve?.()
+      session.initResolve = undefined
       // 死进程不留在 Map:下一次 acquire 重建(带 --conversation)。
       if (this.sessions.get(sessionId) === session) this.sessions.delete(sessionId)
     })
@@ -486,12 +536,16 @@ export class AgyLlmAdapter extends LlmAdapter {
         const m = /"conversation_id":"([^"]+)"/.exec(line)
         if (m !== null && m[1] !== undefined) session.conversationId = m[1]
       }
+      session.initResolve?.()
+      session.initResolve = undefined
       return
     }
     active.armIdle()
     const parsed = active.translator.push(line)
     if (parsed.conversationId !== undefined) {
       session.conversationId = parsed.conversationId
+      session.initResolve?.()
+      session.initResolve = undefined
       // init 一到就把 conversationId 持久化(有旧记录的只更新 id,锚点不动):
       // 进程此时若崩溃/stall 被杀,下一轮重建仍能 --conversation 恢复,
       // 而不是把整段会话丢掉重来。
@@ -573,9 +627,16 @@ export class AgyLlmAdapter extends LlmAdapter {
     const output = step.output
     // 工具输出的 latin1→UTF-8 还原已在 translator(fixLatin1Deep)完成。
     // 失败时 output 可能为空、错误只在 tool_info.error 里,兜底取它。
-    const textOut = typeof output === 'string' && output.length > 0
+    let textOut = typeof output === 'string' && output.length > 0
       ? output
       : typeof step.toolError === 'string' ? step.toolError : ''
+    // AGY 大输出落盘代读:>约 6KB 的输出 AGY 不给内容(留时间戳+路径,output
+    // 为空)。按约定路径读回,否则 dsh 会话与工具卡片只剩空结果(见
+    // readSavedToolOutput 的说明)。
+    if (textOut.length === 0 && state !== 'ERROR' && session.conversationId !== undefined) {
+      const saved = readSavedToolOutput(session.conversationId, stepIndex)
+      if (saved !== undefined) textOut = saved
+    }
     // 协议层识别后台任务状态(manage_task/command_status 输出里的 Task/Status):
     // 轮 result 后若仍有 RUNNING,dsh 会自动续轮等待——状态驱动,不赌模型自觉。
     collectTaskStates(active.tasks, textOut)
@@ -809,7 +870,7 @@ export class AgyLlmAdapter extends LlmAdapter {
     try {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         if (options.signal?.aborted) throw options.signal.reason ?? new Error('aborted')
-        const session = this.acquire(sessionId, cwd, prior?.conversationId)
+        const session = await this.acquire(sessionId, cwd, prior?.conversationId)
         if (session.spawnError !== undefined) {
           // 坏命令(不存在/参数非法):重试同一个只白等,直接报错。
           throw new Error(`llm-agy: ${session.spawnError}`)
