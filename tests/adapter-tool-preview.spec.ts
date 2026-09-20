@@ -357,5 +357,45 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     expect(content[0]?.text).not.toContain('Resource offloaded')
     expect(content[1]?.type).toBe('image')
     expect(content[1]?.attachment?.attachmentId).toBe('sha256:offloaded')
+    // 图片卡片(ui-tool image-card-model)要求**根调用**持久化 meta.path——
+    // 原生 read_image 由 tool-fs 的 presentationMeta 写入,适配器手写事件必须
+    // 自己带上;缺了它卡片降级为通用行、image 块被 JSON 化、预览消失。
+    expect((resultEvent?.data as { meta?: { path?: string } })?.meta?.path)
+      .toBe('D:/orig/v8-detail-open.png')
+  })
+
+  it('MCP 壳调 dsh read_image:路径取自嵌套 Arguments(信封与 meta 不再退化)', async () => {
+    // 回归(用户报告"agy 读图又丢了预览"):AGY 经 call_mcp_tool 调 read_image 时
+    // 目标路径嵌在 Arguments 里,此前的路径解析只看壳参数 → 解析不到 → 信封退化
+    // 成 brain 落盘路径、meta 缺失 → 卡片降级 JSON 化。
+    const png = join(dir, 'media_0.png')
+    writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]))
+    const attachments = {
+      saveImage: async (input: { data: Uint8Array; mediaType: string }) => ({
+        attachmentId: 'sha256:mcpimg', mediaType: input.mediaType,
+        bytes: input.data.byteLength, width: 1, height: 1,
+      }),
+    }
+    await drive([
+      stepLine('ACTIVE', 'call_mcp_tool', 12, {
+        parameters: {
+          ServerName: 'dsh', ToolName: 'read_image',
+          Arguments: { file_path: '.temp/me-redesign/me-768.png' },
+        },
+      }),
+      stepLine('DONE', 'call_mcp_tool', 12, {
+        output: `[Resource offloaded to ${pathToFileURL(png).href}]`,
+      }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
+    ], { getAttachments: () => attachments })
+
+    const data = appended.find((e) => e.type === 'tool/result')?.data as {
+      meta?: { path?: string }
+      message?: { content?: readonly { content?: readonly { type: string; text?: string }[] }[] }
+    }
+    const content = data?.message?.content?.[0]?.content ?? []
+    expect(content[1]?.type).toBe('image')
+    expect(content[0]?.text).toContain('<path>.temp/me-redesign/me-768.png</path>')
+    expect(data?.meta?.path).toBe('.temp/me-redesign/me-768.png')
   })
 })
