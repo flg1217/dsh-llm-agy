@@ -23,6 +23,12 @@ export const AgySettingsConfig = z.object({
   delegationGuide: z.boolean().default(true).description('注入子代理委派提示词'),
   /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
   readImageAgy: z.boolean().default(true).description('使用 AGY 读取粘贴的图片'),
+  /**
+   * 按模型模态分流读图工具(默认开启):多模态路由禁 `read_image_agy`
+   * (指路原生 `read_image`,图片直接进模型上下文),仅文本路由禁原生
+   * `read_image`(指路 `read_image_agy`,AGY 转述成文字)。
+   */
+  imageToolGate: z.boolean().default(true).description('按模型模态分流读图工具:多模态禁 read_image_agy,仅文本禁 read_image'),
   /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
   searchOverride: z.boolean().default(true).description('用 AGY 搜索接管全局 web_search 工具'),
   /**
@@ -43,6 +49,12 @@ export function readDshExecutorEnabled(ctx: Context): boolean {
 export function readImageAgyEnabled(ctx: Context): boolean {
   const settings = ctx.get('settings') as { get?: (ns: string) => { readImageAgy?: boolean } | undefined } | undefined
   return settings?.get?.('agy')?.readImageAgy ?? true
+}
+
+/** 读取「按模型模态分流读图工具」开关(默认开启)。 */
+export function readImageToolGateEnabled(ctx: Context): boolean {
+  const settings = ctx.get('settings') as { get?: (ns: string) => { imageToolGate?: boolean } | undefined } | undefined
+  return settings?.get?.('agy')?.imageToolGate ?? true
 }
 
 /** 读取 searchOverride 开关(默认开启):开 = 注册进全局 web 搜索缝,关 = 仅独立 agy_web_search 工具。 */
