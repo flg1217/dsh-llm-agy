@@ -30,7 +30,7 @@ beforeEach(() => {
 })
 
 const {
-  agyInstalled, agyTest, readImageAgyEnabled, readImageToolGateEnabled, registerAgySettings, searchOverrideEnabled,
+  agyInstalled, agyTest, readImageAgyEnabled, registerAgySettings, searchOverrideEnabled,
 } = await import('../src/settings.ts')
 const { delegationGuideEnabled, installDelegationGuide } = await import('../src/delegate-guide.ts')
 
@@ -57,7 +57,6 @@ describe('settings:开关默认值与显式关闭', () => {
   it('settings 服务缺失时各开关都按默认开启', () => {
     const ctx = { get: () => undefined } as unknown as Context
     expect(readImageAgyEnabled(ctx)).toBe(true)
-    expect(readImageToolGateEnabled(ctx)).toBe(true)
     expect(searchOverrideEnabled(ctx)).toBe(true)
     expect(delegationGuideEnabled(ctx)).toBe(true)
   })
@@ -65,12 +64,10 @@ describe('settings:开关默认值与显式关闭', () => {
   it('显式关闭后返回 false', () => {
     const ctx = settingsCtx({
       readImageAgy: false,
-      imageToolGate: false,
       searchOverride: false,
       delegationGuide: false,
     })
     expect(readImageAgyEnabled(ctx)).toBe(false)
-    expect(readImageToolGateEnabled(ctx)).toBe(false)
     expect(searchOverrideEnabled(ctx)).toBe(false)
     expect(delegationGuideEnabled(ctx)).toBe(false)
   })

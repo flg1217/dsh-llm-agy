@@ -17,12 +17,6 @@ export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
     delegationGuide: z<boolean, boolean>;
     /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
     readImageAgy: z<boolean, boolean>;
-    /**
-     * 按模型模态分流读图工具(默认开启):多模态路由禁 `read_image_agy`
-     * (指路原生 `read_image`,图片直接进模型上下文),仅文本路由禁原生
-     * `read_image`(指路 `read_image_agy`,AGY 转述成文字)。
-     */
-    imageToolGate: z<boolean, boolean>;
     /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
     searchOverride: z<boolean, boolean>;
     /**
@@ -40,12 +34,6 @@ export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
     delegationGuide: z<boolean, boolean>;
     /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
     readImageAgy: z<boolean, boolean>;
-    /**
-     * 按模型模态分流读图工具(默认开启):多模态路由禁 `read_image_agy`
-     * (指路原生 `read_image`,图片直接进模型上下文),仅文本路由禁原生
-     * `read_image`(指路 `read_image_agy`,AGY 转述成文字)。
-     */
-    imageToolGate: z<boolean, boolean>;
     /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
     searchOverride: z<boolean, boolean>;
     /**
@@ -59,8 +47,6 @@ export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
 export declare function readDshExecutorEnabled(ctx: Context): boolean;
 /** 读取 readImageAgy 开关(默认开启)。 */
 export declare function readImageAgyEnabled(ctx: Context): boolean;
-/** 读取「按模型模态分流读图工具」开关(默认开启)。 */
-export declare function readImageToolGateEnabled(ctx: Context): boolean;
 /** 读取 searchOverride 开关(默认开启):开 = 注册进全局 web 搜索缝,关 = 仅独立 agy_web_search 工具。 */
 export declare function searchOverrideEnabled(ctx: Context): boolean;
 /** 检测 AGY 是否已安装(命令存在)。 */

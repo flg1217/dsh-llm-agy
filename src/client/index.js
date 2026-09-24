@@ -187,28 +187,6 @@ window.__ModuleLoader__.load({
         }
       }, [scope, imageRelayOn])
 
-      // 按模型模态分流读图工具开关:读写 agy settings namespace 的 imageToolGate。
-      const [imageGateOn, setImageGateOn] = react.useState(true)
-      react.useEffect(() => {
-        try {
-          const v = scope.getSnapshot().value
-          if (v?.imageToolGate !== undefined) setImageGateOn(Boolean(v.imageToolGate))
-        } catch { /* 镜像未就绪 */ }
-        return scope.subscribe(() => {
-          const v2 = scope.getSnapshot().value
-          if (v2?.imageToolGate !== undefined) setImageGateOn(Boolean(v2.imageToolGate))
-        })
-      }, [scope])
-      const toggleImageGate = react.useCallback(async () => {
-        const next = !imageGateOn
-        setImageGateOn(next)
-        try {
-          await scope.set('imageToolGate', next)
-        } catch (e) {
-          setImageGateOn(!next)
-        }
-      }, [scope, imageGateOn])
-
       // AGY 搜索接管开关:读写 agy settings namespace 的 searchOverride。
       const [searchOverrideOn, setSearchOverrideOn] = react.useState(true)
       react.useEffect(() => {
@@ -418,23 +396,6 @@ window.__ModuleLoader__.load({
               imageRelayOn
                 ? '开启:粘贴的图片由 AGY 读取为文字描述,文本模型也能看图(无需切换模型)'
                 : '关闭:粘贴图片按原生流程处理(多模态模型可自己看图)',
-            ),
-          ),
-          // 按模型模态分流读图工具开关
-          react.createElement('div', { className: C.field },
-            react.createElement('div', { className: C.fieldHead },
-              react.createElement('span', { className: C.label }, '按模型模态分流读图工具'),
-              react.createElement('input', {
-                type: 'checkbox',
-                checked: imageGateOn,
-                onChange: toggleImageGate,
-                style: { accentColor: 'var(--dsw-alias-brand-primary)', width: 16, height: 16, cursor: 'pointer' },
-              }),
-            ),
-            react.createElement('p', { className: C.hint },
-              imageGateOn
-                ? '开启:多模态模型只许用 read_image(图片直接进上下文),仅文本模型只许用 read_image_agy(AGY 转述)'
-                : '关闭:两个读图工具都放行,只靠提示词引导模型自己选',
             ),
           ),
 

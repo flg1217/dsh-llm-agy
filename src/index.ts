@@ -13,13 +13,11 @@ import { registerAgySearchTool } from './search-tool.js'
 import {
   readDshExecutorEnabled,
   readImageAgyEnabled,
-  readImageToolGateEnabled,
   registerAgySettings,
   searchOverrideEnabled,
 } from './settings.js'
 import { registerDshMcpServer } from '@flg1217/dsh-mcp'
 import { installImageRelay } from './image-paste.js'
-import { installImageToolGate } from './image-tool-gate.js'
 import { captureAttachments, registerReadImageAgy } from './read-image.js'
 import { installDelegationGuide } from './delegate-guide.js'
 import { registerSubagentTool } from './subagent-tool.js'
@@ -186,12 +184,6 @@ export function apply(ctx: Context, config: Config): void {
           proxy: agyOptions.proxy,
         }))
         if (disposeTool !== undefined) imageServiceDisposers.add(disposeTool)
-        // 读图工具闸门(按模型模态分流,见 image-tool-gate.ts):
-        // - 仅文本(或能力未知)路由:禁 dsh 原生 read_image、指路 read_image_agy
-        //   (relay 的伪声明会让原生调用"成功",图片块进历史后下一次请求才被硬拒);
-        // - 多模态路由:禁 read_image_agy、指路 read_image(转述对能直接看图的模型是纯损失)。
-        // 受设置「按模型模态分流读图工具」控制(每次调用热读,切换即时生效)。
-        imageServiceDisposers.add(installImageToolGate(ctx, () => readImageToolGateEnabled(ctx)))
       }
     } else {
       for (const dispose of imageServiceDisposers) {
