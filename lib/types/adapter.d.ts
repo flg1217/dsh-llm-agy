@@ -86,6 +86,10 @@ export declare class AgyLlmAdapter extends LlmAdapter {
     /** dsh sessionId → 续接记录(持久化,续跑只补发 AGY 尚未见过的增量)。 */
     private readonly conversations;
     constructor(ctx: Context, options: AgyAdapterOptions);
+    /** 会话事件入口:目标会话出现 next-step 用户插话 → 中断运行中的 AGY 轮。 */
+    private onSessionEvent;
+    /** 中断该会话运行中的 AGY 轮(幂等):杀进程 + 唤醒 stream 等待循环。 */
+    private interruptForSteer;
     prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<{
         model: LlmResolvedModelInfo;
         stream: (options: GenerateOptions) => AsyncIterable<StreamChunk>;

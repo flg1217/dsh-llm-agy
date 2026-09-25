@@ -262,6 +262,12 @@ interface ActiveTurn {
   pendingEnrich: Promise<unknown>[]
   /** 后台任务状态(taskId → 最新状态词):协议层识别,dsh 据此自动续轮等待。 */
   tasks: Map<string, string>
+  /**
+   * 用户插话中断(`agent/inbox/spliced` → next-step):AGY CLI 不支持回合内
+   * steer/interrupt(实测忽略 interrupt event),插话要立即被响应只能杀进程
+   * 中断当前轮,由 agent-loop 的下一 step 续跑补发插话内容。
+   */
+  steerInterrupted: boolean
   // ── 工具事件落地状态 ────────────────────────────────────────────
   session?: SessionFace
   turn: number
@@ -318,6 +324,56 @@ export class AgyLlmAdapter extends LlmAdapter {
   ) {
     super()
     this.conversations = options.store ?? new ConversationStore()
+    // 插话探测:订阅全局会话事件。dsh 允许生成中插入用户消息(先进 per-target
+    // 的 inbox,`agent/inbox/spliced` 落会话日志),AGY 轮是单个长 step,插入
+    // 会悬挂到整轮结束——适配器据此立即中断(见 interruptForSteer),让插入
+    // 在下一个 step 被 agent-loop claim 并续跑补发。
+    // ctx.on 缺失(极简测试上下文)时静默跳过:探测能力缺席不影响主流程。
+    const on = (ctx as { on?: (name: string, handler: (...args: unknown[]) => void) => unknown }).on
+    on?.call(ctx, 'session/event', (session?: unknown, event?: unknown) => {
+      this.onSessionEvent(session, event)
+    })
+  }
+
+  /** 会话事件入口:目标会话出现 next-step 用户插话 → 中断运行中的 AGY 轮。 */
+  private onSessionEvent(session: unknown, event: unknown): void {
+    const face = session as { id?: unknown; header?: { id?: unknown } } | undefined
+    const sessionId = typeof face?.header?.id === 'string' ? face.header.id
+      : typeof face?.id === 'string' ? face.id
+      : undefined
+    if (sessionId === undefined) return
+    const ev = event as { type?: unknown; data?: unknown } | undefined
+    if (ev?.type !== 'agent/inbox/spliced') return
+    const data = ev.data as { target?: unknown; inserted?: unknown } | undefined
+    if (data?.target !== 'next-step' || !Array.isArray(data.inserted)) return
+    // 放行来源:真实用户插话(user)与主代理 send_message 回传(agent-message,
+    // 见 dsh subagent 的 createAgentMessage)——两者都期望"插队立即响应"。
+    const hasUserText = data.inserted.some((raw) => {
+      const message = raw as { source?: { kind?: unknown }; content?: Array<{ type?: string; text?: string }> }
+        | undefined
+      const kind = message?.source?.kind
+      if ((kind !== 'user' && kind !== 'agent-message') || !Array.isArray(message?.content)) return false
+      const text = message.content
+        .filter(block => block?.type === 'text' && typeof block.text === 'string')
+        .map(block => block.text ?? '')
+        .join('')
+      return text.trim().length > 0
+    })
+    if (!hasUserText) return
+    this.interruptForSteer(sessionId)
+  }
+
+  /** 中断该会话运行中的 AGY 轮(幂等):杀进程 + 唤醒 stream 等待循环。 */
+  private interruptForSteer(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    const active = session?.active
+    if (session === undefined || active === undefined || active.finished) return
+    active.steerInterrupted = true
+    this.killSession(session, '用户插话,中断当前响应')
+    active.finished = true
+    const wake = active.wake
+    active.wake = undefined
+    wake?.()
   }
 
   override async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<{
@@ -795,6 +851,7 @@ export class AgyLlmAdapter extends LlmAdapter {
       chunks: [],
       finished: false,
       stallTimedOut: false,
+      steerInterrupted: false,
       maxGapMs: 0,
       lastLineAt: Date.now(),
       lineSamples: 0,
@@ -954,7 +1011,11 @@ export class AgyLlmAdapter extends LlmAdapter {
               event: 'user',
               message: { role: 'user', content: [{ type: 'text', text }] },
             })
-            session.proc.stdin?.write(payload + '\n')
+            try {
+              session.proc.stdin?.write(payload + '\n')
+            } catch {
+              // 插话中断等场景 stdin 已被 end:消息没送出去,按中断收尾。
+            }
             while (!active.finished) {
               if (active.chunks.length > 0) {
                 const chunk = active.chunks.shift()!
@@ -969,6 +1030,9 @@ export class AgyLlmAdapter extends LlmAdapter {
             // 工具结果补全的异步落地完成后再收尾(否则回合结束而 tool/result 未落地)。
             await Promise.allSettled(active.pendingEnrich)
             active.pendingEnrich.length = 0
+            // 插话中断:立即收尾(不等后台任务续轮),插入消息由 agent-loop 的
+            // 下一 step claim 并经续跑补发。
+            if (active.steerInterrupted) break
             const pending = runningTaskIds(active.tasks)
             if (options.signal?.aborted || active.stallTimedOut
               || pending.length === 0 || taskWait >= MAX_TASK_WAIT_ROUNDS) {
@@ -993,6 +1057,21 @@ export class AgyLlmAdapter extends LlmAdapter {
         // 中止:进程树已由 abort 监听器杀掉,立即收尾——不重试、不合成错误
         // (宿主会把本回合标记为 interrupted)。
         if (options.signal?.aborted) return
+        // 插话中断:当前轮 prompt 已确认送达 AGY 服务端会话(事件流都回来了),
+        // 按已发送写锚点(成功口径),正常收尾——agent-loop 看到 next-step 队列
+        // 非空会立即开下一 step,resumeReplayPrompt 把插话内容补发给 AGY。
+        if (active.steerInterrupted) {
+          if (session.conversationId !== undefined) {
+            const latest = options.messages.length === 0 ? undefined : options.messages[options.messages.length - 1]!
+            this.conversations.set(sessionId, {
+              conversationId: session.conversationId,
+              sentCount: options.messages.length,
+              ...(latest === undefined ? {} : { lastSentMessageId: String(latest.id) }),
+            })
+          }
+          for (const chunk of active.translator.end()) yield chunk
+          return
+        }
         const translator = active.translator
         const resultError = translator.resultError
         const stderrNote = session.stderrTail.trim().length > 0
