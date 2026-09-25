@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
-import { convertPastedImages } from '../src/image-paste.ts'
+import { convertPastedImages, installImageRelay, isImageCapableRoute } from '../src/image-paste.ts'
 import { agyReadImage } from '../src/read-image.ts'
 
 /** mock AGY 读图:测试不真正 spawn agy 进程。 */
@@ -218,5 +218,43 @@ describe('readImageAgyEnabled:开关读取', async () => {
   it('settings 命名空间开启时返回 true', () => {
     const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: true } : undefined }) }
     expect(readImageAgyEnabled(ctx as never)).toBe(true)
+  })
+})
+
+describe('installImageRelay:surface 声明决定透传/转述', () => {
+  /** 安装 relay 的伪上下文:resolveModelInfo 恒返回给定 info。 */
+  function relayCtx(info: Record<string, unknown>) {
+    const llm = {
+      resolveModelInfo: vi.fn(async () => info),
+      adapters: new Map(),
+    }
+    const ctx = {
+      get: (key: string) => (key === 'llm' ? llm : undefined),
+      on: vi.fn(() => () => {}),
+    }
+    return { ctx, llm }
+  }
+
+  it('surface 声明 image(codebuddy 桥)→ 透传,不转 AGY 文字', async () => {
+    const { ctx, llm } = relayCtx({ inputModalities: ['text', 'image'], nativeImageInput: false })
+    installImageRelay(ctx as never, () => ({ command: 'agy', proxy: '' }))
+    const info = await llm.resolveModelInfo('codebuddy', 'bridged-text-model')
+    expect(info.inputModalities).toEqual(['text', 'image'])
+    expect(isImageCapableRoute('codebuddy', 'bridged-text-model')).toBe(true)
+  })
+
+  it('surface 声明 image 的真多模态 provider → 同样透传', async () => {
+    const { ctx, llm } = relayCtx({ inputModalities: ['text', 'image'], nativeImageInput: true })
+    installImageRelay(ctx as never, () => ({ command: 'agy', proxy: '' }))
+    await llm.resolveModelInfo('deepseek', 'vision-model')
+    expect(isImageCapableRoute('deepseek', 'vision-model')).toBe(true)
+  })
+
+  it('surface 纯文本(直连文本 provider)→ 补声明 image 并转述', async () => {
+    const { ctx, llm } = relayCtx({ inputModalities: ['text'] })
+    installImageRelay(ctx as never, () => ({ command: 'agy', proxy: '' }))
+    const patched = await llm.resolveModelInfo('deepseek', 'text-model')
+    expect(patched.inputModalities).toEqual(['text', 'image'])
+    expect(isImageCapableRoute('deepseek', 'text-model')).toBe(false)
   })
 })

@@ -14,9 +14,11 @@
  * - read_image_agy 工具保留:本地磁盘路径读图、以及附件引用的兜底读取。
  *
  * 两个环节:
- *   1. 包装 llm.resolveModelInfo:文本模型被声明为支持 image 输入
+ *   1. 包装 llm.resolveModelInfo:surface 为纯文本的模型被声明为支持 image 输入
  *      (记录在 imageDeclared 集合)——绕过 api-proxy 的
- *      MODEL_DOES_NOT_SUPPORT_IMAGES 拒绝;
+ *      MODEL_DOES_NOT_SUPPORT_IMAGES 拒绝。**surface 已声明 image 的路由
+ *      (codebuddy 桥、多模态 provider)一律透传**:图片由上游自己适配,
+ *      dsh 侧不做 AGY 转述(用户决策:多模态/CLI 适配直接看图,AGY 仅兜底);
  *   2. llm/stream waterfall 监听器:仅对 imageDeclared 中的模型,把
  *      ImageBlock 就地读图生成描述文本 → 接管调用原 adapter.stream。
  * @module llm-agy/image-paste
