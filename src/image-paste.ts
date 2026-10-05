@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, RequestMessage, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { agyReadImage } from './read-image.js'
 
 /** 被本插件声明为支持 image 的文本模型路由(provider:model)。 */
@@ -52,7 +52,7 @@ function extensionOf(mediaType: string): string {
 }
 
 /** 消息内容是否含 ImageBlock。 */
-function hasImage(messages: readonly Message[]): boolean {
+function hasImage(messages: readonly RequestMessage[]): boolean {
   return messages.some((m) => m.content.some((b) => b.type === 'image'))
 }
 
@@ -110,9 +110,9 @@ function imageContentText(description: string): string {
 }
 
 /**
- * 递归转换内容块:image 块 → 描述文本;tool-result 内嵌块同样递归处理
- * (read_image 等工具会把图片放进 tool-result,pi-ai 的 contentHasImage
- * 递归检测到它同样会拒,所以必须一并转走)。
+ * 转换内容块:image 块 → 描述文本。
+ * (0.2.1 起工具结果是独立的 tool 角色消息,其 content 就是结果块本身,
+ * 直接由外层逐消息处理,不再有嵌套的 tool-result 块要递归。)
  */
 async function convertBlocks(
   ctx: Context,
@@ -125,8 +125,6 @@ async function convertBlocks(
       const imageBlock = block as Extract<ContentBlock, { type: 'image' }>
       const description = await describeImage(ctx, imageBlock, getOptions().command, getOptions().proxy)
       out.push({ type: 'text', text: imageContentText(description) })
-    } else if (block.type === 'tool-result') {
-      out.push({ ...block, content: await convertBlocks(ctx, block.content, getOptions) })
     } else {
       out.push(block)
     }
@@ -135,7 +133,7 @@ async function convertBlocks(
 }
 
 /**
- * 转换请求消息:把**所有**消息内容里的 ImageBlock(含 tool-result 嵌套)都
+ * 转换请求消息:把**所有**消息内容里的 ImageBlock(含工具结果消息)都
  * 转换为描述文本——文本模型(如 deepseek-v4-flash)的流式适配器会在序列化
  * 时硬拒裸图片块(`pi-ai model "X" does not support image input`),所以历史
  * 里的图片块也必须转走,不能原样透传。
@@ -149,15 +147,14 @@ async function convertBlocks(
  */
 export async function convertPastedImages(
   ctx: Context,
-  messages: readonly Message[],
+  messages: readonly RequestMessage[],
   getOptions: () => { command: string; proxy: string },
-): Promise<Message[]> {
+): Promise<RequestMessage[]> {
   let changed = false
-  const transformed: Message[] = []
+  const transformed: RequestMessage[] = []
   for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i]
-    if (!message.content.some((b) => b.type === 'image'
-      || (b.type === 'tool-result' && b.content.some((n) => n.type === 'image')))) {
+    const message = messages[i]!
+    if (!message.content.some((b) => b.type === 'image')) {
       transformed.push(message)
       continue
     }

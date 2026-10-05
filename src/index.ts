@@ -193,7 +193,9 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
   syncImageServices()
-  ctx.on('settings/updated', (ns: string) => {
+  // 0.2.1 起设置事件名为 settings/document-updated(ns, revision);
+  // 旧 'settings/updated' 已不存在。
+  ctx.on('settings/document-updated', (ns: string) => {
     if (ns === 'agy') {
       syncSearch()
       syncImageServices()

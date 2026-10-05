@@ -22,11 +22,11 @@
  * @module llm-agy/image-paste
  */
 import type { Context } from '@deepseek-ai/cordis';
-import type { Message } from '@deepseek-ai/dsh-llm';
+import type { RequestMessage } from '@deepseek-ai/dsh-llm';
 /** 该模型路由是否原生支持 image(由 resolveModelInfo 探测后填充)。 */
 export declare function isImageCapableRoute(provider: string, model: string): boolean;
 /**
- * 转换请求消息:把**所有**消息内容里的 ImageBlock(含 tool-result 嵌套)都
+ * 转换请求消息:把**所有**消息内容里的 ImageBlock(含工具结果消息)都
  * 转换为描述文本——文本模型(如 deepseek-v4-flash)的流式适配器会在序列化
  * 时硬拒裸图片块(`pi-ai model "X" does not support image input`),所以历史
  * 里的图片块也必须转走,不能原样透传。
@@ -38,10 +38,10 @@ export declare function isImageCapableRoute(provider: string, model: string): bo
  *
  * 完全不改动会话数据(日志、surface 都不碰),只影响本次请求的负载。
  */
-export declare function convertPastedImages(ctx: Context, messages: readonly Message[], getOptions: () => {
+export declare function convertPastedImages(ctx: Context, messages: readonly RequestMessage[], getOptions: () => {
     command: string;
     proxy: string;
-}): Promise<Message[]>;
+}): Promise<RequestMessage[]>;
 /**
  * 安装图片中继(返回注销函数,关闭开关时可整体移除):
  * 1. 包装 llm.resolveModelInfo,把文本模型声明为支持 image(绕过 api-proxy 拒绝);

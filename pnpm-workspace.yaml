@@ -2,3 +2,6 @@ packages: []
 
 allowBuilds:
   esbuild: true
+
+# dsh 插件的 peer 由宿主提供,不从 registry 自动安装(避免遮蔽宿主)
+autoInstallPeers: false

@@ -46,13 +46,13 @@ function ownAssistant(id: string, text: string): Message {
   } as unknown as Message
 }
 
-/** 压缩 checkpoint(dsh 原生与镜像压缩的 replace 消息,source 同形)。 */
+/** 压缩 checkpoint(0.2.1 的 source kind 是 'compact-checkpoint')。 */
 function compactCheckpoint(id: string): Message {
   return {
     id,
     role: 'user',
     content: [{ type: 'text', text: '[上下文已压缩]' }],
-    source: { kind: 'plugin', plugin: 'compact' },
+    source: { kind: 'compact-checkpoint' },
   } as unknown as Message
 }
 
@@ -66,13 +66,14 @@ function toolCallMessage(id: string, name: string, args: string): Message {
   } as unknown as Message
 }
 
-/** 工具结果消息(tool-result 块,source.kind='tool')。 */
+/** 工具结果消息(0.2.1:独立的 tool 角色消息,callId/isError 在消息级)。 */
 function toolResultMessage(id: string, text: string): Message {
   return {
     id,
-    role: 'user',
-    content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text }] }],
+    role: 'tool',
+    content: [{ type: 'text', text }],
     source: { kind: 'tool', callId: 'c1' },
+    toolCallId: 'c1',
   } as unknown as Message
 }
 
@@ -305,7 +306,7 @@ describe('lastUserPrompt:精确取用户输入', () => {
         id: 'p1',
         role: 'user',
         content: [{ type: 'text', text: '技能目录提醒' }],
-        source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-skill' },
+        source: { kind: 'skill-catalog' },
       } as unknown as Message,
     ]
     const { prompt, cleanup } = await lastUserPrompt(ctx, messages)

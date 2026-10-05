@@ -8,41 +8,41 @@ import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 export declare const AGY_SETTINGS_NAMESPACE = "agy";
 /** AGY 设置表单 schema(schemastery Schema;settings.register 会把 schema 当函数调用)。 */
-export declare const AgySettingsConfig: z<Schemastery.ObjectS<{
-    command: z<string, string>;
-    model: z<string, string>;
-    effort: z<string, string>;
-    proxy: z<string, string>;
+export declare const AgySettingsConfig: z<Schemastery.ObjectS<NoInfer<{
+    command: z<string, string, "defined">;
+    model: z<string, string, "defined">;
+    effort: z<string, string, "defined">;
+    proxy: z<string, string, "defined">;
     /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
-    delegationGuide: z<boolean, boolean>;
+    delegationGuide: z<boolean, boolean, "defined">;
     /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
-    readImageAgy: z<boolean, boolean>;
+    readImageAgy: z<boolean, boolean, "defined">;
     /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
-    searchOverride: z<boolean, boolean>;
+    searchOverride: z<boolean, boolean, "defined">;
     /**
      * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
      * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
      * 关闭后恢复 AGY 自带工具(旧行为)。
      */
-    dshExecutor: z<boolean, boolean>;
-}>, Schemastery.ObjectT<{
-    command: z<string, string>;
-    model: z<string, string>;
-    effort: z<string, string>;
-    proxy: z<string, string>;
+    dshExecutor: z<boolean, boolean, "defined">;
+}>>, Schemastery.ObjectT<NoInfer<{
+    command: z<string, string, "defined">;
+    model: z<string, string, "defined">;
+    effort: z<string, string, "defined">;
+    proxy: z<string, string, "defined">;
     /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
-    delegationGuide: z<boolean, boolean>;
+    delegationGuide: z<boolean, boolean, "defined">;
     /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
-    readImageAgy: z<boolean, boolean>;
+    readImageAgy: z<boolean, boolean, "defined">;
     /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
-    searchOverride: z<boolean, boolean>;
+    searchOverride: z<boolean, boolean, "defined">;
     /**
      * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
      * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
      * 关闭后恢复 AGY 自带工具(旧行为)。
      */
-    dshExecutor: z<boolean, boolean>;
-}>>;
+    dshExecutor: z<boolean, boolean, "defined">;
+}>>, "plain">;
 /** 读取 dshExecutor 开关(默认开启)。 */
 export declare function readDshExecutorEnabled(ctx: Context): boolean;
 /** 读取 readImageAgy 开关(默认开启)。 */

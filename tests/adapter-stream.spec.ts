@@ -187,11 +187,12 @@ describe('适配器:工具步骤事件落地', () => {
     proc.pushLine(resultLine('SUCCESS', { response: 'ok' }))
     await consume
 
+    // 0.2.1:isError 在 tool/result 消息级,content 直接是结果块。
     const result = appended.find(e => e.type === 'tool/result')?.data as {
-      message?: { content?: readonly { isError?: boolean; content?: readonly { text?: string }[] }[] }
+      message?: { isError?: boolean; content?: readonly { text?: string }[] }
     }
-    expect(result?.message?.content?.[0]?.isError).toBe(true)
-    expect(result?.message?.content?.[0]?.content?.[0]?.text).toContain('command failed: exit 1')
+    expect(result?.message?.isError).toBe(true)
+    expect(result?.message?.content?.[0]?.text).toContain('command failed: exit 1')
   })
 
   it('usage 事件按增量透传(含 cache_read 与 thinking)', async () => {
