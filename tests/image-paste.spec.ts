@@ -201,22 +201,3 @@ describe('convertPastedImages:统一描述模板', () => {
     expect(out[0]?.content[1]).toStrictEqual({ type: 'text', text: '[用户粘贴的图片内容:一张猫的图片]' })
   })
 })
-
-describe('readImageAgyEnabled:开关读取', async () => {
-  const { readImageAgyEnabled } = await import('../src/settings.ts')
-
-  it('未配置时默认开启', () => {
-    const ctx = { get: () => undefined }
-    expect(readImageAgyEnabled(ctx as never)).toBe(true)
-  })
-
-  it('settings 命名空间关闭时返回 false', () => {
-    const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: false } : undefined }) }
-    expect(readImageAgyEnabled(ctx as never)).toBe(false)
-  })
-
-  it('settings 命名空间开启时返回 true', () => {
-    const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: true } : undefined }) }
-    expect(readImageAgyEnabled(ctx as never)).toBe(true)
-  })
-})

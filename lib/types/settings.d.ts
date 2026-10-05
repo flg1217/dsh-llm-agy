@@ -1,54 +1,25 @@
 /**
  * AGY 设置区:
- * - installSettingsSection 注册 `agy` namespace,设置面板自动出现 AntiGravity 配置表单。
- * - 模型探测通道:客户端面板按钮走 api.llm.discoverModels(状态/测试)。
+ * - AgySettings:面板可编辑字段的活引用(由 index.ts 导出的 Config schema 解析,
+ *   profile 条目 id `llm-agy` 即设置命名空间)。
+ * - 模型探测通道:客户端面板按钮走自建路由(见 models-route.ts);官方
+ *   discoverModels 通道一并保留(settingsNs = 条目 id)。
  * @module llm-agy/settings
  */
-import type { Context } from '@deepseek-ai/cordis';
-import z from '@deepseek-ai/schemastery';
-export declare const AGY_SETTINGS_NAMESPACE = "agy";
-/** AGY 设置表单 schema(schemastery Schema;settings.register 会把 schema 当函数调用)。 */
-export declare const AgySettingsConfig: z<Schemastery.ObjectS<NoInfer<{
-    command: z<string, string, "defined">;
-    model: z<string, string, "defined">;
-    effort: z<string, string, "defined">;
-    proxy: z<string, string, "defined">;
-    /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
-    delegationGuide: z<boolean, boolean, "defined">;
-    /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
-    readImageAgy: z<boolean, boolean, "defined">;
-    /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
-    searchOverride: z<boolean, boolean, "defined">;
-    /**
-     * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
-     * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
-     * 关闭后恢复 AGY 自带工具(旧行为)。
-     */
-    dshExecutor: z<boolean, boolean, "defined">;
-}>>, Schemastery.ObjectT<NoInfer<{
-    command: z<string, string, "defined">;
-    model: z<string, string, "defined">;
-    effort: z<string, string, "defined">;
-    proxy: z<string, string, "defined">;
-    /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
-    delegationGuide: z<boolean, boolean, "defined">;
-    /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
-    readImageAgy: z<boolean, boolean, "defined">;
-    /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
-    searchOverride: z<boolean, boolean, "defined">;
-    /**
-     * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
-     * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
-     * 关闭后恢复 AGY 自带工具(旧行为)。
-     */
-    dshExecutor: z<boolean, boolean, "defined">;
-}>>, "plain">;
-/** 读取 dshExecutor 开关(默认开启)。 */
-export declare function readDshExecutorEnabled(ctx: Context): boolean;
-/** 读取 readImageAgy 开关(默认开启)。 */
-export declare function readImageAgyEnabled(ctx: Context): boolean;
-/** 读取 searchOverride 开关(默认开启):开 = 注册进全局 web 搜索缝,关 = 仅独立 agy_web_search 工具。 */
-export declare function searchOverrideEnabled(ctx: Context): boolean;
+import type { Context, Volatile } from '@deepseek-ai/cordis';
+/** 设置命名空间 = profile 条目 id。 */
+export declare const AGY_SETTINGS_NAMESPACE = "llm-agy";
+/** 面板可编辑字段(volatile 活引用;由 index.ts 的 Config schema 解析)。 */
+export interface AgySettings {
+    command: Volatile<string>;
+    model: Volatile<string>;
+    effort: Volatile<string>;
+    proxy: Volatile<string>;
+    delegationGuide: Volatile<boolean>;
+    readImageAgy: Volatile<boolean>;
+    searchOverride: Volatile<boolean>;
+    dshExecutor: Volatile<boolean>;
+}
 /** 检测 AGY 是否已安装(命令存在)。 */
 export declare function agyInstalled(command: string): boolean;
 /**
@@ -62,5 +33,9 @@ export declare function agyTest(command: string, proxy: string): Promise<{
     ok: boolean;
     output: string;
 }>;
-/** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
-export declare function registerAgySettings(ctx: Context): () => Record<string, string>;
+/**
+ * 注册模型探测通道(客户端面板按钮走自建路由,不落会话)。
+ * @param ctx - 插件上下文。
+ * @param settings - 面板字段活引用(命令/代理/模型实时读,面板改动即时生效)。
+ */
+export declare function registerAgySettings(ctx: Context, settings: AgySettings): void;
