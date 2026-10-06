@@ -1,4 +1,5 @@
-// AntiGravity 插件面板卡片(注册 settings.plugins.tab,与官方 WebSearch 卡片外观统一)。
+// AntiGravity 插件设置页(注册 plugins.item,进「内置插件 → 插件列表」条目详情,
+// 与官方 subagent/shell 设置页同机制)。
 // 复用 dsh primitives 组件(Button/图标/writeClipboard)与官方
 // ui-settings-plugins 的 PluginCard/fields CSS(注入同款样式类)。
 // 字段读写走官方 SettingsScope;状态/测试探测需会话级 remote(暂不可用)。
@@ -32,6 +33,7 @@ window.__ModuleLoader__.load({
       chevron: '.dshAgy_chevron{color:var(--dsw-alias-label-tertiary);flex:none;transition:transform .16s}',
       chevronOpen: '.dshAgy_chevronOpen{transform:rotate(180deg)}',
       body: '.dshAgy_body{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}',
+      page: '.dshAgy_page{display:flex;flex-direction:column}',
       field: '.dshAgy_field{flex-direction:column;gap:6px;padding:12px 0;display:flex}',
       fieldTop: '.dshAgy_field+.dshAgy_field{border-top:1px solid var(--dsw-alias-border-l2)}',
       fieldHead: '.dshAgy_fieldHead{align-items:center;gap:8px;display:flex}',
@@ -77,6 +79,7 @@ window.__ModuleLoader__.load({
       card: 'dshAgy_card', cardOpen: 'dshAgy_cardOpen', header: 'dshAgy_header',
       headText: 'dshAgy_headText', name: 'dshAgy_name', description: 'dshAgy_description',
       chevron: 'dshAgy_chevron', chevronOpen: 'dshAgy_chevronOpen', body: 'dshAgy_body',
+      page: 'dshAgy_page',
       field: 'dshAgy_field', fieldHead: 'dshAgy_fieldHead', label: 'dshAgy_label',
       hint: 'dshAgy_hint', badge: 'dshAgy_badge', code: 'dshAgy_code',
       pre: 'dshAgy_pre', row: 'dshAgy_row', modelField: 'dshAgy_modelField',
@@ -125,7 +128,8 @@ window.__ModuleLoader__.load({
     }
 
     function AgyCard(props) {
-      const [open, setOpen] = react.useState(false)
+      // 列表摘要视图:一句话(官方 ItemCard 的 description 渲染此返回值)。
+      if (props.view === 'summary') return 'AGY(CLI)子代理:默认模型/代理/工具开关,检测安装与登录'
       const [checking, setChecking] = react.useState(false)
       const [testing, setTesting] = react.useState(false)
       const [statusText, setStatusText] = react.useState('')
@@ -255,10 +259,9 @@ window.__ModuleLoader__.load({
       }, [])
 
       react.useEffect(() => {
-        if (!open) return
         // 只加载存储的历史值,不自动拉取模型列表(点"获取模型"时才请求)。
         loadConfig()
-      }, [open, loadConfig])
+      }, [loadConfig])
 
       // 提交默认模型:非空 = set,空 = unset(重置为 schema 默认,不写空字符串)。
       const writeModel = react.useCallback(async (value) => {
@@ -299,20 +302,8 @@ window.__ModuleLoader__.load({
         } catch { /* 写失败回读还原 */ loadConfig() }
       }, [currentProxy, savedProxy, scope, loadConfig])
 
-      return react.createElement('li', { className: `${C.card} ${open ? C.cardOpen : ''}` },
-        // 卡片头(与官方 PluginCard 一致)
-        react.createElement('button', {
-          type: 'button', className: C.header, 'aria-expanded': open,
-          'aria-label': `${open ? '收起' : '展开'}: AntiGravity`,
-          onClick: () => setOpen(!open),
-        },
-          react.createElement('span', { className: C.headText },
-            react.createElement('span', { className: C.name }, 'AntiGravity'),
-            react.createElement('span', { className: C.description }, '检测安装/登录、连通性测试、安装命令与工具说明'),
-          ),
-          react.createElement(IconChevronDownOutlineMedium, { className: `${C.chevron} ${open ? C.chevronOpen : ''}` }),
-        ),
-        open && react.createElement('div', { className: C.body },
+      // 详情页:直接铺开字段(官方 plugins.item 详情页自带标题与说明,不画卡片头)。
+      return react.createElement('div', { className: C.page },
           // 检测与测试
           react.createElement('div', { className: C.row },
             react.createElement(Button, {
@@ -462,7 +453,6 @@ window.__ModuleLoader__.load({
                     )),
                   ),
           ),
-        ),
       )
     }
 
@@ -677,16 +667,16 @@ window.__ModuleLoader__.load({
         scope: agyScope,
       })
       ctx.effect(() => {
-        return ctx.slots.inject('settings.plugins.tab', () => {
+        return ctx.slots.inject('plugins.item', () => {
           return ctx.slots.register({
-            name: 'settings.plugins.tab',
+            name: 'plugins.item',
             id: 'llm-agy',
-            order: 30,
+            order: 52,
             label: () => 'AntiGravity',
             inject: sectionInject,
           }, AgyCard)
         })
-      }, 'llm-agy-client: settings.plugins.tab')
+      }, 'llm-agy-client: plugins.item')
       // read_image_agy 会话工具卡片:对齐原生 read_image 的 read 家族行
       // (读取图片标题 + 可打开路径 + 展开显示图片画廊与描述文本)。
       // 图片引用来自工具结果的 presentationMeta(模型不可见,文本模型路由安全)。
