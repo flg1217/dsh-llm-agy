@@ -19,6 +19,7 @@ import { registerSubagentTool } from './subagent-tool.js'
 import { registerAgyModelsTool } from './models.js'
 import { registerAgyModelsRoute } from './models-route.js'
 import { registerSearchWebAgy } from './search-web-agy.js'
+import { applySearchTakeover, providerSelectionEditor } from './provider-selection.js'
 
 export const name = 'llm-agy'
 export const inject = ['llm', 'web', 'tools', 'subagents', 'systemPrompt']
@@ -154,8 +155,10 @@ export function apply(ctx: Context, config: Config): void {
     toolName: 'list_agy_models',
   })
   // AGY 搜索接入(searchOverride 开关热切换):
-  // - 开:注册进全局 web 搜索缝(ctx.web),全局 web_search 工具走 AGY;
-  // - 关:不占全局缝(避免与其它 provider 冲突),只注册独立 agy_web_search 工具。
+  // - 开:注册进全局 web 搜索缝(ctx.web),并把 web 行的 searchProvider 改成
+  //   agy(否则配置里的 deepseek-official 永远优先,注册了也白注册);
+  // - 关:不占全局缝(避免与其它 provider 冲突),还原 web 行,只注册独立
+  //   agy_web_search 工具。
   // 命令/模型/强度/代理一律走 agyOptions 活引用(与适配器同源,面板改动即时生效)。
   const searchOptions = () => ({
     command: agyOptions.command,
@@ -164,12 +167,13 @@ export function apply(ctx: Context, config: Config): void {
     proxy: agyOptions.proxy,
   })
   const searchDisposers = new Set<() => void>()
-  const syncSearch = () => {
+  /** 注册/注销本插件占的搜索面:接管开 = 全局 provider,关 = 独立工具。 */
+  const mountSearch = (override: boolean): void => {
     for (const dispose of searchDisposers) {
       try { dispose() } catch { /* 注销失败不阻断 */ }
     }
     searchDisposers.clear()
-    if (config.searchOverride.get()) {
+    if (override) {
       if (ctx.web !== undefined) {
         try {
           searchDisposers.add(ctx.web.registerSearchProvider(new AgySearchProvider(searchOptions())))
@@ -180,7 +184,46 @@ export function apply(ctx: Context, config: Config): void {
       if (dispose !== undefined) searchDisposers.add(dispose)
     }
   }
-  syncSearch()
+  /** 改写配置让全局选择指向 AGY;失败只告警,不影响注册面。 */
+  const select = async (enabled: boolean): Promise<void> => {
+    try {
+      const changed = await applySearchTakeover(providerSelectionEditor(ctx), enabled)
+      if (changed.length > 0) {
+        ctx.logger.info?.(`llm-agy: 已${enabled ? '接管' : '还原'}全局 web 搜索(改写条目:${changed.join(', ')})`)
+      }
+    } catch (error: unknown) {
+      ctx.logger.warn(`llm-agy: 切换全局 web 搜索 provider 失败:${String(error)}`)
+    }
+  }
+  /**
+   * 面板切换时的同步 = 注册面 + 配置改写。顺序即正确性:开 = 先注册 provider
+   * 再改配置(重载瞬间配置里的 id 必须已可解析);关 = 先改回配置再注销
+   * provider(反序会在重载窗口里让 web_search 撞上 WEB_PROVIDER_CONFIGURED_MISSING)。
+   */
+  const syncSearch = (): void => {
+    const override = config.searchOverride.get()
+    void (async () => {
+      if (!override) await select(false)
+      mountSearch(override)
+      if (override) await select(true)
+    })()
+  }
+  // 插件装载期:注册面立即生效(面板打开前就可能被调用),配置改写推迟到
+  // Loader 首次装载结束 —— configEditor.edit 内部要 entry.update + loader.await,
+  // 在装载过程中直接调用会与装载互相等待(死锁)。定时器先跳出 apply 调用栈,
+  // 再等装载结束,之后改写就退化成一次普通热重载。
+  const convergeAfterBoot = (): void => {
+    const override = config.searchOverride.get()
+    setTimeout(() => {
+      void (async () => {
+        const loader = ctx.get('loader') as { await?: () => Promise<void> } | undefined
+        await loader?.await?.()
+        await select(override)
+      })()
+    }, 0)
+  }
+  mountSearch(config.searchOverride.get())
+  convergeAfterBoot()
   // 注:read_image 覆盖由 router-agy 预设的 read-image-override.mjs
   // (agent 作用域同名注册 shadow 全局)实现,受设置表单 `readImageAgy` 开关控制;
   // 此处无需注册。

@@ -44,7 +44,16 @@
 - 经由 AGY 的 `search_web`(Google 搜索)发起检索
 - AGY 自主完成:搜索 → 打开每个来源阅读全文 → 综合撰写准确、完整、带引用的回答
 - 结果语言跟随提问语言;全程不写入会话记录
-- 一键切换:`web.searchProvider = 'agy'`(设置 → 模型,或 profile patch)
+- 一键接管:设置面板「AGY 搜索接管 web_search」开关。开启时插件经 dsh 的
+  `ctx.configEditor` 自动把 `web` 行的 `searchProvider` 写成 `agy`、并把
+  `tool-web` 行的 `searchTimeoutMs` 抬到 300000ms(写入 profile patch 并热重载),
+  关闭时还原,无需手工改配置
+- 为什么必须改写配置:dsh 的 provider 选择规则是「显式配置的 id 优先于一切已
+  注册 provider」,而 base bundle 把 `web.searchProvider` 固定为 `deepseek-official`
+  —— 只调用 `registerSearchProvider()` 永远拿不到选择权
+- 搜索耗时:一次 `web_search` = 一次完整 AGY 调研(实测约 130s),所以接管会同时
+  抬高 `tool-web.searchTimeoutMs`(只在低于 300000ms 时抬高,不压低你配的更大值;
+  关闭时只回收这一档)
 
 ### 4. 连通性诊断面板(设置 → 插件 → AntiGravity)
 
@@ -115,7 +124,7 @@ npm install -g @antigravity/cli
 | `model` | `gemini-3.7-flash-high` | 推理模型 |
 | `effort` | `high` | 推理强度(low / medium / high) |
 | `proxy` | `http://127.0.0.1:7890` | 流量代理(空字符串禁用) |
-| `searchProviderId` | `agy` | dsh web 搜索 provider 的 id(空字符串禁用搜索接入) |
+| `searchOverride` | `true` | 全局 `web_search` 接管开关:开启时自动改写 `web` / `tool-web` 两行配置,关闭时还原并只提供独立的 `agy_web_search` 工具 |
 | `delegationGuide` | `true` | 注入全局"工具使用提示词"系统提示(设置面板可切) |
 
 可在设置面板直接修改,或编辑 profile 的 `cordis.patch.yml`。
@@ -124,11 +133,19 @@ npm install -g @antigravity/cli
 
 ### 网页搜索走 AGY 深度调研
 
+设置面板里打开「AGY 搜索接管 web_search」即可:插件会把下面两行写进 profile
+patch 并热重载,关闭开关时自动还原。
+
 ```yaml
-# profile patch(~/.dsh/profiles/web/cordis.patch.yml)
+# profile patch(~/.dsh/profiles/web/cordis.patch.yml)——由开关自动维护,无需手改
 - id: web
   config:
     searchProvider: agy
+    fetchProvider: http        # patch 对 config 是整体替换,必须写全
+- id: tool-web
+  config:
+    fetch: true
+    searchTimeoutMs: 300000    # 一次 AGY 调研约 130s,60000ms 会直接超时
 ```
 
 此后主代理调用 `web_search` 时,将获得 AGY 深度检索后撰写的完整回答与来源引用。

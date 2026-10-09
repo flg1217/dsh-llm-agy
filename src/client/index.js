@@ -403,8 +403,8 @@ window.__ModuleLoader__.load({
             ),
             react.createElement('p', { className: C.hint },
               searchOverrideOn
-                ? '开启:全局 web_search 工具由 AGY 深度搜索提供'
-                : '关闭:不占全局搜索(避免与其它搜索 provider 冲突),仅提供独立的 agy_web_search 工具',
+                ? '开启:自动把 web 行的 searchProvider 改为 agy(写入 profile patch 并热重载),全局 web_search 由 AGY 深度搜索提供'
+                : '关闭:还原 web 行的 searchProvider,不占全局搜索(避免与其它搜索 provider 冲突),仅提供独立的 agy_web_search 工具',
             ),
           ),
 
