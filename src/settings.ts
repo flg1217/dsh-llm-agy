@@ -1,54 +1,30 @@
 /**
  * AGY 设置区:
- * - installSettingsSection 注册 `agy` namespace,设置面板自动出现 AntiGravity 配置表单。
- * - 模型探测通道:客户端面板按钮走 api.llm.discoverModels(状态/测试)。
+ * - AgySettings:面板可编辑字段的活引用(由 index.ts 导出的 Config schema 解析,
+ *   profile 条目 id `llm-agy` 即设置命名空间)。
+ * - 模型探测通道:客户端面板按钮走自建路由(见 models-route.ts);官方
+ *   discoverModels 通道一并保留(settingsNs = 条目 id)。
  * @module llm-agy/settings
  */
 
-import type { Context } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 
-export const AGY_SETTINGS_NAMESPACE = 'agy'
+/** 设置命名空间 = profile 条目 id。 */
+export const AGY_SETTINGS_NAMESPACE = 'llm-agy'
 
-/** AGY 设置表单 schema(schemastery Schema;settings.register 会把 schema 当函数调用)。 */
-export const AgySettingsConfig = z.object({
-  command: z.string().default('agy').description('agy 可执行文件命令(默认 agy)'),
-  model: z.string().default('gemini-3.7-flash-high').description('传给 --model 的 AGY 模型'),
-  effort: z.string().default('high').description('推理强度 low/medium/high'),
-  proxy: z.string().default('').description('AGY 流量代理(例如 http://127.0.0.1:7890;留空回落到插件配置的默认代理)'),
-  /** 全局注入"子代理委派"系统提示(subagent_agy_ui 用途与委派规则)。 */
-  delegationGuide: z.boolean().default(true).description('注入子代理委派提示词'),
-  /** 是否注册 AGY 看图工具与图片粘贴中继(默认开启)。 */
-  readImageAgy: z.boolean().default(true).description('使用 AGY 读取粘贴的图片'),
-  /** 是否用 AGY 搜索接管全局 web_search 工具(默认开启);关闭时仅注册独立的 agy_web_search 工具。 */
-  searchOverride: z.boolean().default(true).description('用 AGY 搜索接管全局 web_search 工具'),
-  /**
-   * AGY 工具全 dsh 化(默认开启):以 dsh-executor 自定义 agent 运行 AGY——
-   * 禁用其内置工具,全部工具调用经 dsh 的 MCP 通道(沙箱/审批/后台面板接管)。
-   * 关闭后恢复 AGY 自带工具(旧行为)。
-   */
-  dshExecutor: z.boolean().default(true).description('AGY 工具全部经 dsh(禁用 AGY 自带工具)'),
-})
-
-/** 读取 dshExecutor 开关(默认开启)。 */
-export function readDshExecutorEnabled(ctx: Context): boolean {
-  const settings = ctx.get('settings') as { get?: (ns: string) => { dshExecutor?: boolean } | undefined } | undefined
-  return settings?.get?.('agy')?.dshExecutor ?? true
-}
-
-/** 读取 readImageAgy 开关(默认开启)。 */
-export function readImageAgyEnabled(ctx: Context): boolean {
-  const settings = ctx.get('settings') as { get?: (ns: string) => { readImageAgy?: boolean } | undefined } | undefined
-  return settings?.get?.('agy')?.readImageAgy ?? true
-}
-
-/** 读取 searchOverride 开关(默认开启):开 = 注册进全局 web 搜索缝,关 = 仅独立 agy_web_search 工具。 */
-export function searchOverrideEnabled(ctx: Context): boolean {
-  const settings = ctx.get('settings') as { get?: (ns: string) => { searchOverride?: boolean } | undefined } | undefined
-  return settings?.get?.('agy')?.searchOverride ?? true
+/** 面板可编辑字段(volatile 活引用;由 index.ts 的 Config schema 解析)。 */
+export interface AgySettings {
+  command: Volatile<string>
+  model: Volatile<string>
+  effort: Volatile<string>
+  proxy: Volatile<string>
+  delegationGuide: Volatile<boolean>
+  readImageAgy: Volatile<boolean>
+  searchOverride: Volatile<boolean>
+  dshExecutor: Volatile<boolean>
 }
 
 /** 检测 AGY 是否已安装(命令存在)。 */
@@ -106,30 +82,13 @@ export function agyTest(command: string, proxy: string): Promise<{ ok: boolean; 
   })
 }
 
-/** 注册设置区与模型探测通道(客户端面板按钮走 api.llm.discoverModels,不落会话)。 */
-export function registerAgySettings(ctx: Context): () => Record<string, string> {
-  let current: () => Record<string, unknown> = () => ({})
-  // 官方 0.1.2:设置区经 ctx.settings.installSection 注册(NS 为普通字符串)。
-  ctx.inject(['settings'], (settingsCtx) => {
-    const settings = settingsCtx.get('settings') as {
-      installSection?: (
-        owner: Context,
-        ns: string,
-        schema: unknown,
-        entry: unknown,
-        hooks: { setSource?: (source: () => Record<string, unknown> | undefined) => void; onChange?: () => void },
-      ) => void
-    } | undefined
-    settings?.installSection?.(ctx, AGY_SETTINGS_NAMESPACE, AgySettingsConfig, {}, {
-      setSource: (source) => {
-        current = (() => source() ?? {}) as () => Record<string, unknown>
-      },
-      onChange: () => {},
-    })
-  })
-  const sectionOf = () => current() as Record<string, string>
-
-  // 模型探测通道:客户端 api.llm.discoverModels({settingsNs:'agy', provider:'status'|'test'})
+/**
+ * 注册模型探测通道(客户端面板按钮走自建路由,不落会话)。
+ * @param ctx - 插件上下文。
+ * @param settings - 面板字段活引用(命令/代理/模型实时读,面板改动即时生效)。
+ */
+export function registerAgySettings(ctx: Context, settings: AgySettings): void {
+  // 模型探测通道:客户端 api.llm.discoverModels({settingsNs:'llm-agy', provider:'status'|'test'})
   // → 服务端直接 spawn agy CLI,返回结果(机制通用,语义伪装成 model 列表)。
   // 全程不落会话、不动源码。
   const llm = ctx.get('llm')
@@ -137,9 +96,9 @@ export function registerAgySettings(ctx: Context): () => Record<string, string> 
     try {
     (llm as { registerModelDiscovery: (ns: string, fn: (request: { provider?: string }) => Promise<readonly { id: string; name?: string }[]>) => void })
       .registerModelDiscovery(AGY_SETTINGS_NAMESPACE, async (request: { provider?: string }) => {
-        const section = sectionOf()
-        const command = section.command ?? 'agy'
-        const proxy = section.proxy ?? 'http://127.0.0.1:7890'
+        const command = settings.command.get() || 'agy'
+        const proxy = settings.proxy.get() || 'http://127.0.0.1:7890'
+        const model = settings.model.get() || 'gemini-3.7-flash-high'
         const action = request.provider ?? 'status'
         if (action === 'models') {
           // 列出 AGY 可用模型:解析 `agy models` 输出(id + 显示名两列)。
@@ -153,7 +112,7 @@ export function registerAgySettings(ctx: Context): () => Record<string, string> 
             if (m !== null) entries.push({ id: m[1], name: `${m[1]}  ${m[2]}` })
           }
           // 解析失败/无结果时回落到当前默认,避免弹窗空白
-          if (entries.length === 0) entries.push({ id: section.model, name: section.model })
+          if (entries.length === 0) entries.push({ id: model, name: model })
           return entries
         }
         if (action === 'test') {
@@ -177,5 +136,4 @@ export function registerAgySettings(ctx: Context): () => Record<string, string> 
       if ((error as { code?: string })?.code !== 'DUPLICATE_DISCOVERY') throw error
     }
   }
-  return sectionOf
 }

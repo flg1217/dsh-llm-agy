@@ -106,8 +106,9 @@ function resultTexts(): string[] {
   return appended
     .filter((e) => e.type === 'tool/result')
     .map((e) => {
-      const message = (e.data as { message?: { content?: readonly { content?: readonly { text?: string }[] }[] } }).message
-      return message?.content?.[0]?.content?.[0]?.text ?? ''
+      // 0.2.1:tool/result 消息的 content 直接是结果块数组(无旧 tool-result 包装)。
+      const message = (e.data as { message?: { content?: readonly { text?: string }[] } }).message
+      return message?.content?.[0]?.text ?? ''
     })
 }
 
@@ -257,8 +258,8 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
     expect(JSON.parse(callData?.arguments ?? '{}')).toEqual({ file_path: png })
     // 结果:文本 = dsh 原生读图信封(路径/类型/尺寸),图片本体走相邻 image 块。
     const resultEvent = appended.find((e) => e.type === 'tool/result')
-    const content = (resultEvent?.data as { message?: { content?: readonly { content?: readonly { type: string; text?: string; attachment?: { attachmentId?: string } }[] }[] } })
-      ?.message?.content?.[0]?.content ?? []
+    const content = (resultEvent?.data as { message?: { content?: readonly { type: string; text?: string; attachment?: { attachmentId?: string } }[] } })
+      ?.message?.content ?? []
     expect(content).toHaveLength(2)
     expect(content[0]?.type).toBe('text')
     expect(content[0]?.text).toContain(`<path>${png}</path>`)
@@ -348,8 +349,8 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
 
     expect(saved).toEqual([{ mediaType: 'image/png', bytes: 12, name: 'media_0.png' }])
     const resultEvent = appended.find((e) => e.type === 'tool/result')
-    const content = (resultEvent?.data as { message?: { content?: readonly { content?: readonly { type: string; text?: string; attachment?: { attachmentId?: string } }[] }[] } })
-      ?.message?.content?.[0]?.content ?? []
+    const content = (resultEvent?.data as { message?: { content?: readonly { type: string; text?: string; attachment?: { attachmentId?: string } }[] } })
+      ?.message?.content ?? []
     expect(content).toHaveLength(2)
     expect(content[0]?.type).toBe('text')
     // 信封用调用参数路径(可定位原始文件),落盘提示行不进入结果。
@@ -391,9 +392,9 @@ describe('AgyLlmAdapter:文件类工具结果补全', () => {
 
     const data = appended.find((e) => e.type === 'tool/result')?.data as {
       meta?: { path?: string }
-      message?: { content?: readonly { content?: readonly { type: string; text?: string }[] }[] }
+      message?: { content?: readonly { type: string; text?: string }[] }
     }
-    const content = data?.message?.content?.[0]?.content ?? []
+    const content = data?.message?.content ?? []
     expect(content[1]?.type).toBe('image')
     expect(content[0]?.text).toContain('<path>.temp/me-redesign/me-768.png</path>')
     expect(data?.meta?.path).toBe('.temp/me-redesign/me-768.png')

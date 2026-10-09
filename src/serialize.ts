@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFile, unlink } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, RequestMessage } from '@deepseek-ai/dsh-llm'
 
 /** 续跑兜底:仅当没有可补发内容时使用。 */
 export const CONTINUE_PROMPT
@@ -75,34 +75,31 @@ export interface SerializedPrompt {
 }
 
 /** 消息来源(压缩 checkpoint / own 轮 / 用户输入判定用)。 */
-function sourceOf(message: Message): { kind?: unknown; provider?: unknown; plugin?: unknown } {
+function sourceOf(message: RequestMessage): { kind?: unknown; provider?: unknown; plugin?: unknown } {
   return (message.source ?? {}) as { kind?: unknown; provider?: unknown; plugin?: unknown }
 }
 
 /**
- * 一条消息的可读文本(text + tool-call + tool-result 内嵌文本;图片走路径提示)。
+ * 一条消息的可读文本(text + tool-call 内嵌文本;图片走路径提示)。
  *
  * tool-call 不加分支的话纯工具调用的 assistant 消息文本为空、整条被跳过,
- * 接收方只见结果不见调用(实测丢失)。
+ * 接收方只见结果不见调用(实测丢失)。工具结果在 0.2.1 起是独立的
+ * `role: 'tool'` 消息,content 直接是结果块,由 text 分支天然收集。
  */
-function messageText(message: Message): string {
+function messageText(message: RequestMessage): string {
   const parts: string[] = []
   for (const block of message.content) {
     if (block.type === 'text') parts.push(block.text)
     else if (block.type === 'tool-call') {
       parts.push(`[tool call: ${block.name} ${block.arguments}]`)
-    } else if (block.type === 'tool-result') {
-      for (const inner of block.content) {
-        if (inner.type === 'text') parts.push(inner.text)
-      }
     }
   }
   return parts.join('')
 }
 
-/** 续跑提示消息(无具体可补发内容时的发送载体)。 */
-function continueMessage(): Message {
-  return { role: 'user', content: [{ type: 'text', text: CONTINUE_PROMPT }] } as unknown as Message
+/** 续跑提示消息(无具体可补发内容时的发送载体;请求级输入,无 id/source)。 */
+function continueMessage(): RequestMessage {
+  return { role: 'user', content: [{ type: 'text', text: CONTINUE_PROMPT }] }
 }
 
 /**
@@ -120,7 +117,7 @@ export function continuationPrompt(): string {
 async function serializeParts(
   ctx: Context,
   prefix: string[],
-  messages: readonly Message[],
+  messages: readonly RequestMessage[],
 ): Promise<SerializedPrompt> {
   const parts = [...prefix]
   const tempFiles: string[] = []
@@ -192,13 +189,16 @@ export async function buildPrompt(
  * 工作区指令、技能目录)同样是 user 角色、且排在用户消息**之后**,
  * 按"最后一条 user 角色"取会把用户输入整条顶掉——实测:压缩完成后
  * 被 claim 的排队消息丢失,模型只看到技能目录提醒。
+ * 0.2.1 起请求级输入(`RequestUserInput`,无 id 无 source)也是用户输入,
+ * 同样命中;它不可能来自插件注入(注入必有 source)。
  */
 export async function lastUserPrompt(
   ctx: Context,
-  messages: readonly Message[],
+  messages: readonly RequestMessage[],
 ): Promise<SerializedPrompt> {
   const last = [...messages].reverse().find(
-    message => message.role === 'user' && sourceOf(message).kind === 'user',
+    message => message.role === 'user'
+      && (message.source === undefined || sourceOf(message).kind === 'user'),
   )
   const text = last === undefined ? '' : messageText(last)
   const hasImage = last !== undefined && last.content.some(block => block.type === 'image')
@@ -227,7 +227,7 @@ export async function lastUserPrompt(
  */
 export async function resumeReplayPrompt(
   ctx: Context,
-  messages: readonly Message[],
+  messages: readonly RequestMessage[],
   sentCount: number | undefined,
   lastSentMessageId?: string,
   ownProvider: string = 'agy',
@@ -251,13 +251,13 @@ export async function resumeReplayPrompt(
 }
 
 /**
- * 前 limit 条里是否有压缩 checkpoint(dsh 原生与镜像压缩的 replace 消息,
- * source 同形:`{ kind:'plugin', plugin:'compact' }`)。数量锚遇到它即不可信。
+ * 前 limit 条里是否有压缩 checkpoint(0.2.1 起 source kind 为
+ * 'compact-checkpoint';旧 `{ kind:'plugin', plugin:'compact' }` 由会话迁移
+ * 重写,不需要兼容)。数量锚遇到它即不可信。
  */
-function hasCompactionCheckpoint(messages: readonly Message[], limit: number): boolean {
+function hasCompactionCheckpoint(messages: readonly RequestMessage[], limit: number): boolean {
   for (let index = 0; index < Math.min(limit, messages.length); index += 1) {
-    const source = sourceOf(messages[index]!)
-    if (source.kind === 'plugin' && source.plugin === 'compact') return true
+    if (sourceOf(messages[index]!).kind === 'compact-checkpoint') return true
   }
   return false
 }
@@ -274,12 +274,12 @@ function hasCompactionCheckpoint(messages: readonly Message[], limit: number): b
  */
 async function replayFrom(
   ctx: Context,
-  messages: readonly Message[],
+  messages: readonly RequestMessage[],
   start: number,
   ownProvider: string,
 ): Promise<SerializedPrompt> {
   let ownTurn = true
-  const selected: Message[] = []
+  const selected: RequestMessage[] = []
   for (let index = start; index < messages.length; index += 1) {
     const message = messages[index]!
     const source = sourceOf(message)

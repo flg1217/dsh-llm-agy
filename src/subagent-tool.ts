@@ -39,7 +39,7 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /** 失败时附上子代理已产出的部分文本。 */
-function withPartialText(error: string, output: ContentBlock[]): string {
+function withPartialText(error: string, output: readonly ContentBlock[]): string {
   const text = output
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
     .map(block => block.text)

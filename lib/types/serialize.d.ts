@@ -13,7 +13,7 @@
  * @module llm-agy/serialize
  */
 import type { Context } from '@deepseek-ai/cordis';
-import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm';
+import type { GenerateOptions, RequestMessage } from '@deepseek-ai/dsh-llm';
 /** 续跑兜底:仅当没有可补发内容时使用。 */
 export declare const CONTINUE_PROMPT = "\u7EE7\u7EED\u5B8C\u6210\u4E4B\u524D\u672A\u5B8C\u6210\u7684\u4EFB\u52A1\u3002\u57FA\u4E8E\u5F53\u524D\u5DE5\u4F5C\u533A\u72B6\u6001\u7EE7\u7EED,\u4E0D\u8981\u91CD\u590D\u5DF2\u5B8C\u6210\u7684\u5DE5\u4F5C,\u53EA\u62A5\u544A\u65B0\u505A\u7684\u5185\u5BB9\u3002";
 /** 序列化结果:prompt 文本 + 资源清理。 */
@@ -35,8 +35,10 @@ export declare function buildPrompt(ctx: Context, options: GenerateOptions): Pro
  * 工作区指令、技能目录)同样是 user 角色、且排在用户消息**之后**,
  * 按"最后一条 user 角色"取会把用户输入整条顶掉——实测:压缩完成后
  * 被 claim 的排队消息丢失,模型只看到技能目录提醒。
+ * 0.2.1 起请求级输入(`RequestUserInput`,无 id 无 source)也是用户输入,
+ * 同样命中;它不可能来自插件注入(注入必有 source)。
  */
-export declare function lastUserPrompt(ctx: Context, messages: readonly Message[]): Promise<SerializedPrompt>;
+export declare function lastUserPrompt(ctx: Context, messages: readonly RequestMessage[]): Promise<SerializedPrompt>;
 /**
  * 续聊补发:把"AGY conversation 尚未见过"的消息补发给 AGY。
  *
@@ -54,4 +56,4 @@ export declare function lastUserPrompt(ctx: Context, messages: readonly Message[
  * @param lastSentMessageId - 上次发送覆盖到的最后一条消息 id(主锚,可选)。
  * @param ownProvider - "本端"provider 名(其 assistant 轮次已在 AGY 历史里)。
  */
-export declare function resumeReplayPrompt(ctx: Context, messages: readonly Message[], sentCount: number | undefined, lastSentMessageId?: string, ownProvider?: string): Promise<SerializedPrompt>;
+export declare function resumeReplayPrompt(ctx: Context, messages: readonly RequestMessage[], sentCount: number | undefined, lastSentMessageId?: string, ownProvider?: string): Promise<SerializedPrompt>;
