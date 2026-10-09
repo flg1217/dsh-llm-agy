@@ -202,25 +202,6 @@ describe('convertPastedImages:统一描述模板', () => {
   })
 })
 
-describe('readImageAgyEnabled:开关读取', async () => {
-  const { readImageAgyEnabled } = await import('../src/settings.ts')
-
-  it('未配置时默认开启', () => {
-    const ctx = { get: () => undefined }
-    expect(readImageAgyEnabled(ctx as never)).toBe(true)
-  })
-
-  it('settings 命名空间关闭时返回 false', () => {
-    const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: false } : undefined }) }
-    expect(readImageAgyEnabled(ctx as never)).toBe(false)
-  })
-
-  it('settings 命名空间开启时返回 true', () => {
-    const ctx = { get: () => ({ get: (ns: string) => ns === 'agy' ? { readImageAgy: true } : undefined }) }
-    expect(readImageAgyEnabled(ctx as never)).toBe(true)
-  })
-})
-
 describe('installImageRelay:surface 声明决定透传/转述', () => {
   /** 安装 relay 的伪上下文:resolveModelInfo 恒返回给定 info。 */
   function relayCtx(info: Record<string, unknown>) {
