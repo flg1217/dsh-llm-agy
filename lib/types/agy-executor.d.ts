@@ -1,16 +1,22 @@
 /**
  * dsh-executor 自定义 agent 的自动化部署(llm-agy 侧)。
  *
- * 重构目标(AGY 工具全 dsh 化):让 AGY 子代理**不再使用自带内置工具**,
- * 全部工具调用走 dsh 的 MCP 端点(与 codebuddy 桥同构——审批/沙箱/会话
+ * 重构目标(AGY 工具全 dsh 化):让 AGY 子代理**不再使用自带文件/命令类内置工具**,
+ * 这些调用全部走 dsh 的 MCP 端点(与 codebuddy 桥同构——审批/沙箱/会话
  * 审计/后台面板全部由 dsh 接管)。
+ *
+ * **例外:search_web 保留为内置工具**。原因:AGY 自带的 Google 搜索是原生能力
+ * (实测约 5s 出结果),而 dsh 的 web_search 会绕回 dsh 的搜索 provider(可能是
+ * 本插件自己 → 多绕一层,也可能是失效的 DeepSeek key / 120s 超时的 OpenAI),
+ * openai_web_search 实测经常 120s 超时。禁用自带搜索只会让检索又慢又容易失败。
  *
  * 两条部署(幂等,每轮 spawn 前确保):
  * 1. **agent.md**:写 `~/.gemini/antigravity-cli/agents/dsh-executor/agent.md`
  *    —— 实测关键配置(PoC,2026-09-19):
- *    - `tools: []` + `inheritMcp: true`:内置工具只剩 4 个基础设施
- *      (call_mcp_tool/manage_task/list_resources/read_resource),
- *      **MCP 工具直接展开为一等工具**(不是壳);
+ *    - `tools: [search_web]` + `inheritMcp: true`:内置工具只剩 search_web 与 4 个
+ *      基础设施(call_mcp_tool/manage_task/list_resources/read_resource),
+ *      **MCP 工具直接展开为一等工具**(不是壳);写 `tools: []` 则连自带搜索一起没了,
+ *      AGY 只能去调 dsh 的 web_search/openai_web_search(2026-10-10 修);
  *    - **不要写 `excludeDefaultComponents: true`**——实测它会把 MCP 工具的
  *      展开也一起杀掉(只剩 call_mcp_tool 壳)。
  * 2. **MCP 配置**:写 `~/.gemini/config/mcp_config.json` 的 `dsh` 条目
@@ -31,7 +37,7 @@ export declare const EXECUTOR_AGENT_NAME = "dsh-executor";
 /** MCP 服务器条目名(agy mcp list 里显示的名字)。 */
 export declare const DSH_MCP_SERVER_NAME = "dsh";
 /** agent.md 全文(内容随配置语义变更时更新,便于幂等对比)。 */
-export declare const EXECUTOR_AGENT_MD = "---\nname: dsh-executor\ndescription: dsh \u5DE5\u5177\u6267\u884C\u4F53\u2014\u2014\u7981\u7528\u5168\u90E8\u5185\u7F6E\u5DE5\u5177,\u6240\u6709\u64CD\u4F5C\u7ECF dsh \u7684 MCP \u5DE5\u5177\u5B8C\u6210\u3002\ninheritMcp: true\ninheritCustomizations: false\ntools: []\nmainAgent: true\nsubagent: false\n---\n\n# dsh-executor\n\n\u4F60\u662F\u5728 dsh \u6846\u67B6\u91CC\u8FD0\u884C\u7684\u6267\u884C\u4F53:\u6C99\u7BB1\u3001\u5BA1\u6279\u3001\u4F1A\u8BDD\u5BA1\u8BA1\u4E0E\u540E\u53F0\u4EFB\u52A1\u9762\u677F\u90FD\u5728 dsh \u4FA7\u3002\n\n## \u7EA6\u675F\n\n1. \u4F60\u6CA1\u6709 run_command / view_file / write_to_file / grep_search \u7B49\u672C\u5730\u5185\u7F6E\u5DE5\u5177\u3002\n2. \u6240\u6709\u68C0\u67E5\u3001\u67E5\u8BE2\u4E0E\u526F\u4F5C\u7528\u53EA\u80FD\u901A\u8FC7\u5DF2\u8FDE\u63A5\u7684 MCP \u5DE5\u5177\u5B8C\u6210(dsh \u5DE5\u5177\u96C6)\u3002\n3. \u9700\u8981\u7ED3\u679C\u7684\u547D\u4EE4\u7528\u540E\u53F0\u4EFB\u52A1\u53C2\u6570(run_in_background)\u4EA4\u7ED9 dsh,\u5B8C\u6210\u901A\u77E5\u4F1A\u5524\u9192\u4F60;\n   \u4E0D\u8981\u7528\u5916\u90E8\u65B9\u5F0F(\u81EA\u5199\u8F6E\u8BE2\u811A\u672C\u7B49)\u7ED5\u8FC7 dsh \u7684\u540E\u53F0\u4EFB\u52A1\u9762\u677F\u3002\n4. \u82E5\u67D0\u9879\u64CD\u4F5C\u6CA1\u6709\u4EFB\u4F55 MCP \u5DE5\u5177\u80FD\u5B8C\u6210,\u5982\u5B9E\u8BF4\u660E\u80FD\u529B\u7F3A\u53E3,\u4E0D\u8981\u5C1D\u8BD5\u672C\u5730\u56DE\u9000\u3002\n5. \u547D\u4EE4\u6267\u884C\u5DE5\u5177(pwsh / bash)\u7684 `description` \u53C2\u6570\u5FC5\u586B:5\u201310 \u8BCD\u8BF4\u660E\u8FD9\u6761\u547D\u4EE4\u505A\u4EC0\u4E48\n   (\u663E\u793A\u5728 dsh \u7684\u5DE5\u5177\u5361\u7247\u4E0A)\u3002\u9996\u6B21\u8C03\u7528\u5C31\u5E26\u4E0A,\u4E0D\u8981\u7B49 dsh \u6821\u9A8C\u62D2\u7EDD\u540E\u518D\u8865\u3002\n";
+export declare const EXECUTOR_AGENT_MD = "---\nname: dsh-executor\ndescription: dsh \u5DE5\u5177\u6267\u884C\u4F53\u2014\u2014\u4FDD\u7559\u81EA\u5E26\u641C\u7D22,\u5176\u4F59\u64CD\u4F5C\u7ECF dsh \u7684 MCP \u5DE5\u5177\u5B8C\u6210\u3002\ninheritMcp: true\ninheritCustomizations: false\ntools: [search_web]\nmainAgent: true\nsubagent: false\n---\n\n# dsh-executor\n\n\u4F60\u662F\u5728 dsh \u6846\u67B6\u91CC\u8FD0\u884C\u7684\u6267\u884C\u4F53:\u6C99\u7BB1\u3001\u5BA1\u6279\u3001\u4F1A\u8BDD\u5BA1\u8BA1\u4E0E\u540E\u53F0\u4EFB\u52A1\u9762\u677F\u90FD\u5728 dsh \u4FA7\u3002\n\n## \u7EA6\u675F\n\n1. \u4F60\u53EA\u6709\u4E00\u4E2A\u5185\u7F6E\u5DE5\u5177:search_web(Google \u641C\u7D22)\u3002run_command / view_file /\n   write_to_file / grep_search \u7B49\u672C\u5730\u5185\u7F6E\u5DE5\u5177\u90FD\u6CA1\u6709\u3002\n2. \u8054\u7F51\u68C0\u7D22\u4E00\u5F8B\u7528 search_web(\u81EA\u5E26\u641C\u7D22,\u5FEB\u4E14\u4E0D\u4F9D\u8D56 dsh \u7684\u641C\u7D22 provider);\n   \u4E0D\u8981\u7528 dsh \u7684 web_search / openai_web_search \u2014\u2014 \u90A3\u4E24\u4E2A\u4F1A\u628A\u68C0\u7D22\u7ED5\u56DE dsh,\n   \u65E2\u6162\u53C8\u53EF\u80FD\u5931\u8D25\u3002\u6253\u5F00\u5177\u4F53\u7F51\u9875\u7528 read_url_content \u6216 dsh \u7684 web_fetch\u3002\n3. \u9664 search_web \u5916,\u6240\u6709\u68C0\u67E5\u3001\u67E5\u8BE2\u4E0E\u526F\u4F5C\u7528\u53EA\u80FD\u901A\u8FC7\u5DF2\u8FDE\u63A5\u7684 MCP \u5DE5\u5177\u5B8C\u6210(dsh \u5DE5\u5177\u96C6)\u3002\n4. \u9700\u8981\u7ED3\u679C\u7684\u547D\u4EE4\u7528\u540E\u53F0\u4EFB\u52A1\u53C2\u6570(run_in_background)\u4EA4\u7ED9 dsh,\u5B8C\u6210\u901A\u77E5\u4F1A\u5524\u9192\u4F60;\n   \u4E0D\u8981\u7528\u5916\u90E8\u65B9\u5F0F(\u81EA\u5199\u8F6E\u8BE2\u811A\u672C\u7B49)\u7ED5\u8FC7 dsh \u7684\u540E\u53F0\u4EFB\u52A1\u9762\u677F\u3002\n5. \u82E5\u67D0\u9879\u64CD\u4F5C\u6CA1\u6709\u4EFB\u4F55 MCP \u5DE5\u5177\u80FD\u5B8C\u6210,\u5982\u5B9E\u8BF4\u660E\u80FD\u529B\u7F3A\u53E3,\u4E0D\u8981\u5C1D\u8BD5\u672C\u5730\u56DE\u9000\u3002\n6. \u547D\u4EE4\u6267\u884C\u5DE5\u5177(pwsh / bash)\u7684 `description` \u53C2\u6570\u5FC5\u586B:5\u201310 \u8BCD\u8BF4\u660E\u8FD9\u6761\u547D\u4EE4\u505A\u4EC0\u4E48\n   (\u663E\u793A\u5728 dsh \u7684\u5DE5\u5177\u5361\u7247\u4E0A)\u3002\u9996\u6B21\u8C03\u7528\u5C31\u5E26\u4E0A,\u4E0D\u8981\u7B49 dsh \u6821\u9A8C\u62D2\u7EDD\u540E\u518D\u8865\u3002\n";
 /**
  * 确保自定义 agent 已部署;内容变化时覆写。
  * @returns 本次是否发生了写入(便于日志)。
