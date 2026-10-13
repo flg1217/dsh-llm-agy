@@ -2,8 +2,9 @@
  * subagent_agy_ui 委派工具单元测试(此前零覆盖)。
  *
  * 锁死的行为:
- * - 默认后台(continuable):startContinuable 收到完整请求,返回 subagentId;
- * - run_in_background:false 前台:等待 run.result,输出进返回值;
+ * - 默认后台(delivery:'parent'):startActivation 收到完整请求,返回 subagentId;
+ * - run_in_background:false 前台(delivery:'caller'):等待 activation.result,
+ *   输出进返回值;
  * - 非 completed 停止原因映射为明确错误(aborted/error/max-tokens/refusal)
  *   并附上已产出的部分文本;dispose 始终释放;
  * - model 参数覆盖插件默认模型;exec.agent 缺失报错;
@@ -32,8 +33,7 @@ function setup(options?: {
 }): {
   tool: ToolDef | undefined
   section: SectionDef | undefined
-  start: ReturnType<typeof vi.fn>
-  startContinuable: ReturnType<typeof vi.fn>
+  startActivation: ReturnType<typeof vi.fn>
   dispose: ReturnType<typeof vi.fn>
   toolRegistered: { value: boolean }
 } {
@@ -41,16 +41,15 @@ function setup(options?: {
   let section: SectionDef | undefined
   const toolRegistered = { value: true }
   const dispose = vi.fn(async () => {})
-  const run = {
-    id: 'run-1',
+  const activation = {
+    childId: 'child-1',
     result: Promise.resolve(options?.result ?? { stopReason: 'completed', output: [{ type: 'text', text: '工作完成' }] }),
     dispose,
   }
-  const start = vi.fn(async () => {
+  const startActivation = vi.fn(async () => {
     if (options?.failStart !== undefined) throw options.failStart
-    return run
+    return activation
   })
-  const startContinuable = vi.fn(async () => ({ childId: 'child-1' }))
   const ctx = {
     tools: {
       register: (definition: ToolDef): (() => void) => {
@@ -59,7 +58,7 @@ function setup(options?: {
       },
       get: (): unknown => (toolRegistered.value ? tool : undefined),
     },
-    subagents: { start, startContinuable },
+    subagents: { startActivation },
     systemPrompt: {
       section: (s: SectionDef): (() => void) => {
         section = s
@@ -74,7 +73,7 @@ function setup(options?: {
     description: '委派前端实现任务',
     promptDescription: '完整任务说明',
   })
-  return { tool, section, start, startContinuable, dispose, toolRegistered }
+  return { tool, section, startActivation, dispose, toolRegistered }
 }
 
 /** 调用方上下文:父 agent 与信号。 */
@@ -86,48 +85,51 @@ function exec(promptAgent = true): { agent?: object; signal: AbortSignal } {
 }
 
 describe('subagent_agy_ui:后台(continuable)分支', () => {
-  it('默认后台:startContinuable 收到请求并返回 subagentId', async () => {
-    const { tool, start, startContinuable } = setup()
+  it('默认后台:startActivation(delivery:parent)收到请求并返回 subagentId', async () => {
+    const { tool, startActivation } = setup()
     const value = await tool?.execute?.({ description: '做页面', prompt: '实现登录页' }, exec())
     expect(value).toEqual({ kind: 'continuable', subagentId: 'child-1' })
-    expect(start).not.toHaveBeenCalled()
-    const request = startContinuable.mock.calls[0]?.[0] as {
+    const spec = startActivation.mock.calls[0]?.[0] as {
       provider: string
       label: string
+      delivery: string
       request: { prompt: Array<{ type: string; text: string }>; agentOptions: { model: string }; parent: unknown }
       signal: AbortSignal
     }
-    expect(request.provider).toBe('spawn')
-    expect(request.label).toBe('做页面')
-    expect(request.request.prompt).toEqual([{ type: 'text', text: '实现登录页' }])
-    expect(request.request.agentOptions.model).toBe('gemini-3.8-high')
-    expect(request.request.parent).toEqual({ id: 'parent-agent' })
+    expect(spec.provider).toBe('spawn')
+    expect(spec.label).toBe('做页面')
+    expect(spec.delivery).toBe('parent')
+    expect(spec.request.prompt).toEqual([{ type: 'text', text: '实现登录页' }])
+    expect(spec.request.agentOptions.model).toBe('gemini-3.8-high')
+    expect(spec.request.parent).toEqual({ id: 'parent-agent' })
   })
 
   it('model 参数覆盖插件默认模型(不改默认对象)', async () => {
-    const { tool, startContinuable } = setup()
+    const { tool, startActivation } = setup()
     await tool?.execute?.({ description: 'x', prompt: 'y', model: 'gemini-3.8-flash-high' }, exec())
-    const request = startContinuable.mock.calls[0]?.[0] as { request: { agentOptions: { model: string } } }
-    expect(request.request.agentOptions.model).toBe('gemini-3.8-flash-high')
+    const spec = startActivation.mock.calls[0]?.[0] as { request: { agentOptions: { model: string } } }
+    expect(spec.request.agentOptions.model).toBe('gemini-3.8-flash-high')
   })
 
   it('exec.agent 缺失时明确报错(不静默降级)', async () => {
-    const { tool, startContinuable } = setup()
+    const { tool, startActivation } = setup()
     await expect(tool?.execute?.({ description: 'x', prompt: 'y' }, exec(false)))
       .rejects.toThrow('requires a calling agent')
-    expect(startContinuable).not.toHaveBeenCalled()
+    expect(startActivation).not.toHaveBeenCalled()
   })
 })
 
 describe('subagent_agy_ui:前台(run_in_background:false)分支', () => {
-  it('等待 run.result,输出进返回值,dispose 释放', async () => {
-    const { tool, start, dispose } = setup()
+  it('等待 activation.result,输出进返回值,dispose 释放', async () => {
+    const { tool, startActivation, dispose } = setup()
     const value = await tool?.execute?.(
       { description: '做页面', prompt: '实现登录页', run_in_background: false },
       exec(),
     )
-    expect(start).toHaveBeenCalledTimes(1)
-    expect(value).toEqual({ kind: 'foreground', runId: 'run-1', output: [{ type: 'text', text: '工作完成' }] })
+    expect(startActivation).toHaveBeenCalledTimes(1)
+    const spec = startActivation.mock.calls[0]?.[0] as { delivery: string }
+    expect(spec.delivery).toBe('caller')
+    expect(value).toEqual({ kind: 'foreground', runId: 'child-1', output: [{ type: 'text', text: '工作完成' }] })
     expect(dispose).toHaveBeenCalledTimes(1)
   })
 
