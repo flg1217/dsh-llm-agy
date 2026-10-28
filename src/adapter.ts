@@ -26,7 +26,7 @@ import type { ChildProcess } from 'node:child_process'
 import { basename, extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
-import { LlmAdapter, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, createAssistantMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import { buildPrompt, continuationPrompt, resumeReplayPrompt } from './serialize.js'
@@ -272,6 +272,8 @@ interface ActiveTurn {
   session?: SessionFace
   turn: number
   step: number
+  /** 本轮路由到的模型(工具广告的 assistant/message source 用)。 */
+  model: string
   /** stepIndex → 已落地 tool/call 的 (seq, callId)。DONE/ERROR 直接取回 callId
    * 回填——不再重算:重算依赖 callName 一致,而 ACTIVE(空壳)与 DONE(带参数)
    * 的映射可能不同,name 一变 callId 就与落地事件失配(工具结果是孤儿)。 */
@@ -673,15 +675,28 @@ export class AgyLlmAdapter extends LlmAdapter {
       // 装配器崩掉(received more than one start Match,实测毒死订阅流)。
       // 必须 continue 语义(直接返回,不碰后续行)——这里是行处理器,return 即跳过。
       if (stepIndex !== undefined && active.toolCallSeq.has(stepIndex)) return
+      const args = JSON.stringify(callArgs ?? {})
+      // 广告:V4 关系校验要求每条 `tool/call` 之前已有一条 `tool-call` 内容块,
+      // 且 name/arguments 逐字一致;缺了它,整份会话读档即被判 corrupt
+      // ("tool/call <id> has no advertised tool lifecycle")。AGY 的工具在它自己
+      // 的进程里执行,没有任何 assistant/message 会带上这些调用,只能适配器补。
+      target.append('assistant/message', {
+        turn: active.turn,
+        step: active.step,
+        message: createAssistantMessage({
+          content: [{ type: 'tool-call', id: callId, name: callName, arguments: args }],
+          source: { provider: 'agy', model: active.model },
+        }),
+        stream: [],
+      }, { surfaceOp: 'append' })
       const ev = target.append('tool/call', {
         turn: active.turn,
         step: active.step,
         callId,
         name: callName,
-        arguments: JSON.stringify(callArgs ?? {}),
+        arguments: args,
       })
       if (stepIndex !== undefined) active.toolCallSeq.set(stepIndex, { seq: ev.seq, callId })
-      const args = JSON.stringify(callArgs ?? {})
       active.translator.recentSteps.push({ toolName: callName, args, status: 'running' })
       if (active.translator.recentSteps.length > 8) {
         active.translator.recentSteps.splice(0, active.translator.recentSteps.length - 8)
@@ -868,6 +883,7 @@ export class AgyLlmAdapter extends LlmAdapter {
       ...(sessionFace !== undefined ? { session: sessionFace } : {}),
       turn,
       step,
+      model: options.model,
       toolCallSeq: new Map(),
       stepParams: new Map(),
       editSnapshots: new Map(),

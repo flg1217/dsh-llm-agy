@@ -160,6 +160,29 @@ describe('适配器:工具步骤事件落地', () => {
     expect(appended.filter(e => e.type === 'tool/result')).toHaveLength(1)
   })
 
+  it('tool/call 之前先落 assistant/message 广告(否则读档关系校验判整份会话 corrupt)', async () => {
+    const proc = agyProc()
+    routeProcs(proc)
+    const adapter = makeAdapter()
+    const consume = collect(adapter)
+    await waitFor(() => proc.stdinWrites.length === 1)
+    proc.pushLine(stepLine('ACTIVE', 'run_command', 1, { parameters: { CommandLine: 'ls' } }))
+    proc.pushLine(stepLine('DONE', 'run_command', 1, { output: 'ok' }))
+    proc.pushLine(resultLine('SUCCESS', { response: 'ok' }))
+    await consume
+
+    const callIndex = appended.findIndex(e => e.type === 'tool/call')
+    const call = appended[callIndex]?.data as { callId: string; name: string; arguments: string }
+    expect(appended[callIndex - 1]?.type).toBe('assistant/message')
+    const advertisement = appended[callIndex - 1]?.data as {
+      message?: { content?: readonly { type?: string; id?: string; name?: string; arguments?: string }[] }
+    }
+    // name/arguments 必须与 tool/call 逐字一致:关系校验按值比对。
+    expect(advertisement.message?.content?.[0]).toMatchObject({
+      type: 'tool-call', id: call.callId, name: call.name, arguments: call.arguments,
+    })
+  })
+
   it('DONE 无配对 call / 重复 DONE 都被忽略(不产生幽灵 tool/result)', async () => {
     const proc = agyProc()
     routeProcs(proc)
