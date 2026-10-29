@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentActivation, SubagentResult } from '@deepseek-ai/dsh-subagent'
 
 /** Prompt order after bounded delegation policy and before child reporting. */
 const SECTION_ORDER = 116.5
@@ -47,21 +47,21 @@ function withPartialText(error: string, output: readonly ContentBlock[]): string
   return text.length === 0 ? error : `${error}\nPartial output before the run ended:\n${text}`
 }
 
-/** 收集并释放一次前台 run。 */
-async function settleForeground(run: SubagentRun): Promise<{ kind: 'foreground'; runId: string; output: JsonValue[] }> {
+/** 收集并释放一次前台 activation。 */
+async function settleForeground(activation: SubagentActivation): Promise<{ kind: 'foreground'; runId: string; output: JsonValue[] }> {
   try {
-    const result = await run.result
+    const result = await activation.result
     const error = stopReasonError(result)
     if (error !== undefined) {
       throw new Error(withPartialText(error, result.output))
     }
     return {
       kind: 'foreground',
-      runId: run.id,
+      runId: activation.childId,
       output: result.output as unknown as JsonValue[],
     }
   } finally {
-    await run.dispose()
+    await activation.dispose()
   }
 }
 
@@ -141,7 +141,6 @@ export function registerSubagentTool(ctx: Context, options: SubagentToolOptions)
         throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
       }
       const request = {
-        label: args.description,
         prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
         parent,
         agentOptions: args.model !== undefined && args.model.length > 0
@@ -149,19 +148,23 @@ export function registerSubagentTool(ctx: Context, options: SubagentToolOptions)
           : agentOptions,
       }
       if (args.run_in_background !== false) {
-        const started = await ctx.subagents.startContinuable({
+        const started = await ctx.subagents.startActivation({
           provider,
           label: args.description,
           request,
           signal: exec.signal,
+          delivery: 'parent',
         })
         return { kind: 'continuable' as const, subagentId: started.childId }
       }
-      const run: SubagentRun = await ctx.subagents.start(provider, {
-        ...request,
+      const activation = await ctx.subagents.startActivation({
+        provider,
+        label: args.description,
+        request,
         signal: exec.signal,
+        delivery: 'caller',
       })
-      return await settleForeground(run)
+      return await settleForeground(activation)
     },
   }))
   ctx.systemPrompt.section({
