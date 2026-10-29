@@ -14,7 +14,7 @@
 | --- | --- |
 | **独立推理子代理** | 将前端/UI 等任务委派给 AGY 驱动的子代理(Gemini 3.7 Flash High),与主代理并行,长线会话可复用 |
 | **深度网页搜索** | `web_search` 工具经由 AGY 的 Google 搜索通道完成**完整深度检索**——搜索、打开来源、阅读全文、综合成文,而非简单链接列表 |
-| **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端由 AGY 就地读图,把图片转为文字描述进入消息。全程无感,不新增模型路由、不切换模型、不写磁盘 |
+| **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端由 AGY 就地读图,把图片转为文字描述进入消息。全程无感,不新增模型路由、不切换模型,图片只临时落盘系统临时目录且读完即删 |
 | **连通性诊断面板** | dsh 设置 → 插件内的 AntiGravity 卡片:检测本机安装与登录状态、发起真实连通性测试、一键复制各平台安装命令 |
 
 插件严格遵循 dsh 官方扩展机制(profile bundle patch / `registerModelDiscovery` / `registerSearchProvider` / `llm/stream` waterfall / 客户端 slot),**不修改 dsh 任何源码**,可随 dsh 平滑升级。
@@ -33,7 +33,7 @@
 
 纯文本主模型(如 DeepSeek V4 Flash)不支持图片输入,但本插件让"输入栏贴图"开箱即用:
 
-- **粘贴即用**:在任意输入栏粘贴图片,原生走 ImageBlock;插件在后端把图片落盘到工作区 `.dsh-llm-agy/tmp/pasted-images/`,替换为路径文本后交回原模型路由
+- **粘贴即用**:在任意输入栏粘贴图片,原生走 ImageBlock;插件在后端把图片写成**系统临时文件**(不落工作区),由 AGY 就地读图取回文字描述,临时文件随即删除,再把描述交回原模型路由
 - **完全透明**:不新增 provider 路由、不切换模型、不改前端,用户无感知
 - **工具使用提示词**:插件注入全局 system prompt section,引导主代理"图片内容已在消息中,禁止委派子代理读图、不轮询后台子代理"(设置面板可关闭)
 
@@ -213,7 +213,7 @@ patch 并热重载,关闭开关时自动还原。
 
 - **装配**:`cordis.patch.yml`(bundle patch)+ package.json 的 `dsh.bundle`/`dsh.client` 清单,`dsh plugin add` 一键完成
 - **推理**:服务端 spawn AGY CLI(stream-json 协议),实时流式输出与 token 统计由 dsh harness 统一呈现
-- **图片输入**:包装 `llm.resolveModelInfo` 为文本模型声明 image 能力(绕过 dsh 的拒绝校验);`llm/stream` waterfall 监听器把 ImageBlock 落盘为路径文本后直接调用原 adapter——**不新增 provider、不切换模型、不改前端**
+- **图片输入**:包装 `llm.resolveModelInfo` 为文本模型声明 image 能力(绕过 dsh 的拒绝校验);`llm/stream` waterfall 监听器把 ImageBlock 就地读图转成文字描述后直接调用原 adapter——**不新增 provider、不切换模型、不改前端**
 - **读图**:图片中继在请求组装时 spawn AGY 就地读图,返回文字描述
 - **搜索**:`search()` 直接调用 AGY,由其自主完成检索与综合
 - **面板**:检测/测试经官方 `api.llm.discoverModels` 通道触发,服务端执行、结果回显,**不写会话、不改 dsh 源码**
