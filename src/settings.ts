@@ -98,7 +98,7 @@ export function registerAgySettings(ctx: Context, settings: AgySettings): void {
       .registerModelDiscovery(AGY_SETTINGS_NAMESPACE, async (request: { provider?: string }) => {
         const command = settings.command.get() || 'agy'
         const proxy = settings.proxy.get() || 'http://127.0.0.1:7890'
-        const model = settings.model.get() || 'gemini-3.7-flash-high'
+        const model = settings.model.get() || 'gemini-3.8-flash-high'
         const action = request.provider ?? 'status'
         if (action === 'models') {
           // 列出 AGY 可用模型:解析 `agy models` 输出(id + 显示名两列)。

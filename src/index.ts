@@ -58,7 +58,7 @@ export interface Config {
 
 export const Config: z<AgyConfigInput, Config> = z.object({
   command: z.string().default('agy').description('agy 可执行文件命令(默认 agy)').volatile(),
-  model: z.string().default('gemini-3.7-flash-high').description('传给 --model 的 AGY 模型').volatile(),
+  model: z.string().default('gemini-3.8-flash-high').description('传给 --model 的 AGY 模型').volatile(),
   effort: z.string().default('high').description('推理强度 low/medium/high').volatile(),
   proxy: z.string().default('http://127.0.0.1:7890')
     .description('AGY 流量代理(例如 http://127.0.0.1:7890;留空回落到默认)').volatile(),
@@ -115,7 +115,7 @@ export function apply(ctx: Context, config: Config): void {
    */
   const agyOptions = {
     get command(): string { return config.command.get() || 'agy' },
-    get model(): string { return config.model.get() || 'gemini-3.7-flash-high' },
+    get model(): string { return config.model.get() || 'gemini-3.8-flash-high' },
     get effort(): string { return config.effort.get() || 'high' },
     get proxy(): string { return config.proxy.get() || 'http://127.0.0.1:7890' },
   }

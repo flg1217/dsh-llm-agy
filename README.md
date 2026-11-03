@@ -12,7 +12,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| **独立推理子代理** | 将前端/UI 等任务委派给 AGY 驱动的子代理(Gemini 3.7 Flash High),与主代理并行,长线会话可复用 |
+| **独立推理子代理** | 将前端/UI 等任务委派给 AGY 驱动的子代理(Gemini 3.8 Flash High),与主代理并行,长线会话可复用 |
 | **深度网页搜索** | `web_search` 工具经由 AGY 的 Google 搜索通道完成**完整深度检索**——搜索、打开来源、阅读全文、综合成文,而非简单链接列表 |
 | **文本模型图片输入** | 纯文本主模型(如 DeepSeek V4 Flash)也能**在输入栏直接粘贴图片**:后端由 AGY 就地读图,把图片转为文字描述进入消息。全程无感,不新增模型路由、不切换模型,图片只临时落盘系统临时目录且读完即删 |
 | **连通性诊断面板** | dsh 设置 → 插件内的 AntiGravity 卡片:检测本机安装与登录状态、发起真实连通性测试、一键复制各平台安装命令 |
@@ -121,7 +121,7 @@ npm install -g @antigravity/cli
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
 | `command` | `agy` | AGY 可执行文件命令 |
-| `model` | `gemini-3.7-flash-high` | 推理模型 |
+| `model` | `gemini-3.8-flash-high` | 推理模型,必须是 `list_agy_models` 返回的 id(AGY 版本升级会下线旧 id,报错里会带 `--model "..."`);`subagent_agy_ui` 的 `model` 参数按次覆盖,换模型会重建该会话的 AGY 进程 |
 | `effort` | `high` | 推理强度(low / medium / high) |
 | `proxy` | `http://127.0.0.1:7890` | 流量代理(空字符串禁用) |
 | `searchOverride` | `true` | 全局 `web_search` 接管开关:开启时自动改写 `web` / `tool-web` 两行配置,关闭时还原并只提供独立的 `agy_web_search` 工具 |

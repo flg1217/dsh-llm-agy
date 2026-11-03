@@ -287,6 +287,8 @@ interface PersistentSession {
   sessionId: string
   proc: ChildProcess
   cwd: string
+  /** 本进程启动时传给 `--model` 的 id;换模型必须重建进程(启动参数不可改)。 */
+  model: string
   /** init 事件给的 AGY 会话 id(续接记录与后续进程 --conversation 用)。 */
   conversationId?: string
   active?: ActiveTurn
@@ -407,15 +409,22 @@ export class AgyLlmAdapter extends LlmAdapter {
     sessionId: string,
     cwd: string,
     priorConversationId: string | undefined,
+    model: string,
   ): Promise<PersistentSession> {
     const live = this.sessions.get(sessionId)
     if (live !== undefined && !live.exited) {
-      if (live.idleTimer !== undefined) {
-        clearTimeout(live.idleTimer)
-        live.idleTimer = undefined
+      if (live.model !== model) {
+        // 换模型只能重建进程:--model 是启动参数。续接记录仍指向同一个 AGY
+        // conversation,重建时带 --conversation 续跑,不重发历史。
+        this.killSession(live, `切换模型 ${live.model} → ${model}`)
+      } else {
+        if (live.idleTimer !== undefined) {
+          clearTimeout(live.idleTimer)
+          live.idleTimer = undefined
+        }
+        live.lastUsedAt = Date.now()
+        return live
       }
-      live.lastUsedAt = Date.now()
-      return live
     }
     // 排队:等前一个进程 init 的门(首个 spawn 的门已开,直接过)。
     const waitFor = this.spawnGate
@@ -427,12 +436,15 @@ export class AgyLlmAdapter extends LlmAdapter {
     // 复用,绝不双开(双开会让先建的进程成孤儿,idle 回收找不到它)。
     const raced = this.sessions.get(sessionId)
     if (raced !== undefined && !raced.exited) {
-      openGate() // 本调用没有新进程要 init,门立即放行
-      return raced
+      if (raced.model === model) {
+        openGate() // 本调用没有新进程要 init,门立即放行
+        return raced
+      }
+      this.killSession(raced, `切换模型 ${raced.model} → ${model}`)
     }
     let session: PersistentSession
     try {
-      session = this.startSession(sessionId, cwd, priorConversationId)
+      session = this.startSession(sessionId, cwd, priorConversationId, model)
     } catch (error) {
       openGate() // 启动失败也要放行下一个,不把队列永久堵死
       throw error
@@ -447,8 +459,12 @@ export class AgyLlmAdapter extends LlmAdapter {
   }
 
   /** 启动常驻 agy 进程并装好行/退出/错误处理。 */
-  private startSession(sessionId: string, cwd: string, priorConversationId: string | undefined): PersistentSession {
-    const model = this.options.model
+  private startSession(
+    sessionId: string,
+    cwd: string,
+    priorConversationId: string | undefined,
+    model: string,
+  ): PersistentSession {
     // 模型名自带强度后缀(gemini-3.8-flash-high 等)时,AGY 拒绝再传
     // --effort("--model X conflicts with --effort=Y"),此时静默省略。
     const effortArgs = /-(low|medium|high)$/i.test(model) ? [] : ['--effort', this.options.effort]
@@ -507,6 +523,7 @@ export class AgyLlmAdapter extends LlmAdapter {
       sessionId,
       proc,
       cwd,
+      model,
       exited: false,
       stderrTail: '',
       lastUsedAt: Date.now(),
@@ -994,7 +1011,7 @@ export class AgyLlmAdapter extends LlmAdapter {
     try {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         if (options.signal?.aborted) throw options.signal.reason ?? new Error('aborted')
-        const session = await this.acquire(sessionId, cwd, prior?.conversationId)
+        const session = await this.acquire(sessionId, cwd, prior?.conversationId, model)
         // 门上等待(或 spawn)期间被 abort:不再写 prompt——spawn 门把"检查与
         // 发送"之间的窗口拉长到最长 3s,取消落在窗口内时,取消语义优先(白起
         // 的进程由 idle 回收处理)。

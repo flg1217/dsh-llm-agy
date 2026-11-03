@@ -49,7 +49,7 @@ describe('settings:Config schema 默认值与显式覆盖', () => {
   it('缺省:命令/模型/代理有默认,三个开关默认开启', () => {
     const config = Config({})
     expect(config.command.get()).toBe('agy')
-    expect(config.model.get()).toBe('gemini-3.7-flash-high')
+    expect(config.model.get()).toBe('gemini-3.8-flash-high')
     expect(config.effort.get()).toBe('high')
     expect(config.proxy.get()).toBe('http://127.0.0.1:7890')
     expect(config.readImageAgy.get()).toBe(true)
@@ -137,7 +137,7 @@ describe('settings:模型探测通道', () => {
   })
 
   it('models:解析两列、跳过 Fetching 行;空输出回落当前默认模型', async () => {
-    const { discover } = discoveryHarness({ command: 'agy', model: 'gemini-3.7-flash-high' })
+    const { discover } = discoveryHarness({ command: 'agy', model: 'gemini-3.8-flash-high' })
 
     mockedSpawnSync.mockReturnValue({
       stdout: 'Fetching models...\ngemini-3.8-high  Gemini 3.8 High\nclaude-4-opus  Claude 4 Opus\n',
@@ -149,7 +149,7 @@ describe('settings:模型探测通道', () => {
 
     mockedSpawnSync.mockReturnValue({ stdout: '', stderr: '' } as never)
     const fallback = await discover({ provider: 'models' })
-    expect(fallback).toEqual([{ id: 'gemini-3.7-flash-high', name: 'gemini-3.7-flash-high' }])
+    expect(fallback).toEqual([{ id: 'gemini-3.8-flash-high', name: 'gemini-3.8-flash-high' }])
   })
 
   it('test:成功展示真实回复,失败带 ✗ 前缀', async () => {
