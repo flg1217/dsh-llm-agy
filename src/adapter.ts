@@ -33,7 +33,7 @@ import { buildPrompt, continuationPrompt, resumeReplayPrompt } from './serialize
 import { ConversationStore } from './conversations.js'
 import { AgyTranslator, agyCallId } from './translate.js'
 import type { AgyStep } from './types.js'
-import { DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
+import { agyEffortArgs, DEFAULT_AGY_RUN_TIMEOUTS } from './agy-run.js'
 import { AGY_FILE_MUTATION_TOOLS, agyToolFilePath, enrichAgyToolResult, parseOffloadedMediaPath, readFileRaw, readImageFile, readSavedToolOutput } from './tool-preview.js'
 import { commitImagePresentation } from './read-image.js'
 import type { AttachmentsFace, ImageRefValue } from './read-image.js'
@@ -465,9 +465,7 @@ export class AgyLlmAdapter extends LlmAdapter {
     priorConversationId: string | undefined,
     model: string,
   ): PersistentSession {
-    // 模型名自带强度后缀(gemini-3.8-flash-high 等)时,AGY 拒绝再传
-    // --effort("--model X conflicts with --effort=Y"),此时静默省略。
-    const effortArgs = /-(low|medium|high)$/i.test(model) ? [] : ['--effort', this.options.effort]
+    const effortArgs = agyEffortArgs(model, this.options.effort)
     // AGY 工具全 dsh 化(默认开):部署 dsh-executor 自定义 agent(禁内置
     // 工具)+ 把 dsh MCP 端点(含本会话 session/key)写入 agy 全局配置,
     // 并以 --agent 启动——AGY 的工具调用全部经 dsh 的 MCP 通道。

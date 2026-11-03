@@ -83,17 +83,27 @@ export const DEFAULT_AGY_RUN_TIMEOUTS = {
  * 跑一次 AGY print 调用并返回 `result.response` 文本。
  * @throws AGY 显式报错、超时、无输出时抛出带原因的 Error。
  */
+/**
+ * `--effort` 只对不带强度后缀的 Gemini 模型有效。
+ *
+ * AGY 对另外两类组合直接拒绝启动(2026-11-03 实测):
+ * - 带强度后缀的模型(gemini-3.8-flash-high 等):`--model X conflicts with --effort=Y`;
+ * - 非 Gemini 模型(claude-sonnet-4-6 等):`--effort is not supported for model X`。
+ * @param model - 传给 `--model` 的 id。
+ * @param effort - 配置里的推理强度;空串视为未配置。
+ * @returns 追加到命令行的参数,不适用时为空数组。
+ */
+export function agyEffortArgs(model: string | undefined, effort: string | undefined): string[] {
+  if (effort === undefined || effort.length === 0) return []
+  const id = model ?? ''
+  if (!/^gemini-/i.test(id) || /-(low|medium|high)$/i.test(id)) return []
+  return ['--effort', effort]
+}
+
 export async function runAgyText(options: AgyRunTextOptions): Promise<string> {
   const command = options.command
   const proxy = options.proxy
-  // 模型名自带强度后缀(gemini-3.8-flash-high 等)时,AGY 拒绝再传 --effort
-  // ("--model X conflicts with --effort=Y"),此时静默省略 --effort。
-  const modelEffortSuffix = /-(low|medium|high)$/i.exec(options.model ?? '') !== null
-  const effortArgs = options.effort !== undefined
-    && options.effort.length > 0
-    && !modelEffortSuffix
-    ? ['--effort', options.effort]
-    : []
+  const effortArgs = agyEffortArgs(options.model, options.effort)
   const proc = spawn(command, [
     '-p', options.prompt,
     '--output-format', 'stream-json',

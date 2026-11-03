@@ -137,7 +137,16 @@ describe('适配器:模型选择', () => {
 
     expect(agySpawns()).toHaveLength(1)
     expect(modelArg(agySpawns()[0]!)).toBe('claude-sonnet-4-6')
-    // 无强度后缀 → 仍按配置传 --effort
+    // 非 Gemini 模型不接受 --effort(AGY 实测:--effort is not supported for model X)
+    expect(agySpawns()[0]).not.toContain('--effort')
+  })
+
+  it('无强度后缀的 Gemini 模型仍按配置传 --effort', async () => {
+    const proc = agyProc(7106)
+    routeProcs(proc)
+    await runTurn(makeAdapter(), 'gemini-3.1-pro', proc)
+
+    expect(modelArg(agySpawns()[0]!)).toBe('gemini-3.1-pro')
     expect(agySpawns()[0]).toContain('--effort')
   })
 
